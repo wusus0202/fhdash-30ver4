@@ -82,7 +82,7 @@ function switchPage(source) {
 async function fetchPlantData() {
   try {
     // 抓取同域 Serverless Function
-    const res = await fetch("/api/getPlantData");
+    const res = await fetch("/api/getPlantData");//test
     const data = await res.json();
     console.log("植物資料:", data);
 
