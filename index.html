@@ -3,92 +3,100 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>芳和監測站診斷版</title>
+    <title>芳和監測站 - 多站切換版</title>
     <link rel="icon" href="data:;base64,iVBORw0KGgo=">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        :root { --bg: #f0f2f5; --card: #ffffff; }
-        body { font-family: sans-serif; background: var(--bg); padding: 20px; color: #333; }
+        :root { --bg: #f8f9fa; --card: #ffffff; --primary: #2563eb; }
+        body { font-family: -apple-system, sans-serif; background: var(--bg); padding: 20px; }
         .container { max-width: 900px; margin: 0 auto; }
+        
+        /* 站點切換按鈕 */
+        .btn-group { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+        button { padding: 10px 15px; border: none; border-radius: 8px; background: #ddd; cursor: pointer; transition: 0.3s; }
+        button.active { background: var(--primary); color: white; }
+
         .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 20px; }
-        .stat-card { background: var(--card); padding: 20px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); text-align: center; }
-        .stat-card .value { font-size: 2rem; font-weight: bold; color: #2c3e50; }
-        .chart-section { background: var(--card); padding: 20px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-        .debug-info { margin-top: 15px; padding: 10px; background: #eee; border-radius: 5px; font-size: 0.8rem; font-family: monospace; }
+        .stat-card { background: var(--card); padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); text-align: center; }
+        .stat-card .value { font-size: 2.2rem; font-weight: bold; color: #1e293b; }
+        
+        .chart-section { background: var(--card); padding: 25px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        .debug-panel { margin-top: 15px; padding: 12px; background: #fee2e2; border-left: 4px solid #ef4444; font-size: 0.85rem; display: none; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1 id="title">🏫 小芳堂監測中</h1>
+    <div class="btn-group">
+        <button onclick="switchStation('B827EB63D1C8', this)" class="active">小芳堂</button>
+        <button onclick="switchStation('B827EBC2994D', this)">司令台</button>
+        <button onclick="switchStation('B827EB797224', this)">學務處</button>
+        <button onclick="switchStation('FT7_043', this)" style="background: #10b981; color: white;">測試站 (保證有資料)</button>
+    </div>
+
+    <h1 id="site-name">🏫 正在監測：小芳堂</h1>
+    
     <div class="stats-grid">
         <div class="stat-card"><div>PM2.5</div><div class="value" id="pm25">--</div></div>
         <div class="stat-card"><div>溫度</div><div class="value" id="temp">--</div></div>
         <div class="stat-card"><div>濕度</div><div class="value" id="humi">--</div></div>
         <div class="stat-card"><div>CO2</div><div class="value" id="co2">--</div></div>
     </div>
+
     <div class="chart-section">
-        <div style="height:300px;"><canvas id="mainChart"></canvas></div>
-        <div id="status" style="margin-top:10px; color:#666;">● 初始化中...</div>
-        <div class="debug-info" id="debug">診斷資訊：等待資料中...</div>
+        <div style="height:350px;"><canvas id="mainChart"></canvas></div>
+        <div id="status" style="margin-top:10px; color:#64748b;">● 初始化中...</div>
+        <div id="debug-box" class="debug-panel"></div>
     </div>
 </div>
 
 <script>
-    // 你可以手動把 ID 改成 'B827EBC2994D' (司令台) 試試看
-    const DEVICE_ID = 'B827EB63D1C8'; 
+    let currentID = 'B827EB63D1C8';
     let mainChart;
+    let updateTimer;
 
-    window.onload = async () => {
-        initChart();
+    function switchStation(id, btn) {
+        currentID = id;
+        document.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById('site-name').innerText = `🏫 正在監測：${btn.innerText}`;
         updateData();
-        setInterval(updateData, 30000);
-    };
+    }
 
     function initChart() {
         const ctx = document.getElementById('mainChart').getContext('2d');
         mainChart = new Chart(ctx, {
             type: 'line',
-            data: { labels: [], datasets: [{ label: '即時趨勢', data: [], borderColor: '#3498db', tension: 0.4 }] },
+            data: { labels: [], datasets: [{ label: '數據趨勢', data: [], borderColor: '#2563eb', backgroundColor: 'rgba(37, 99, 235, 0.1)', fill: true, tension: 0.4 }] },
             options: { responsive: true, maintainAspectRatio: false }
         });
     }
 
     async function updateData() {
         try {
-            // 抓取最後一筆資料
-            const res = await fetch(`https://pm25.lass-net.org/data/last.php?device_id=${DEVICE_ID}`);
+            const res = await fetch(`https://pm25.lass-net.org/data/last.php?device_id=${currentID}`);
             const json = await res.json();
-            
-            // 診斷：看看伺服器到底回傳了什麼
-            const rawFeed = json?.feeds?.[0];
-            if (!rawFeed) {
-                document.getElementById('debug').innerText = "診斷資訊：伺服器目前沒有此 ID 的即時封包。";
-                return;
+            const raw = json?.feeds?.[0];
+            const d = raw?.[currentID] || raw;
+
+            const debugBox = document.getElementById('debug-box');
+            if (!d || !Object.keys(d).includes('s_d0')) {
+                debugBox.style.display = 'block';
+                debugBox.innerHTML = `⚠️ 設備可能離線或感測器故障。<br>收到的原始欄位：${Object.keys(d || {}).join(', ')}`;
+                resetValues();
+            } else {
+                debugBox.style.display = 'none';
+                document.getElementById('pm25').innerText = Math.round(d.s_d0 ?? d.pm2_5 ?? 0);
+                document.getElementById('temp').innerText = (d.s_t0 ?? d.temperature ?? 0).toFixed(1);
+                document.getElementById('humi').innerText = Math.round(d.s_h0 ?? d.humidity ?? 0);
+                document.getElementById('co2').innerText = Math.round(d.s_g8 ?? d.s_gg ?? 0);
+                document.getElementById('status').innerText = "● 最後更新: " + new Date().toLocaleTimeString();
             }
 
-            // 自動尋找數據物件 (有時在 ID 下，有時在根目錄)
-            const d = rawFeed[DEVICE_ID] || rawFeed;
-            document.getElementById('debug').innerText = "抓到的原始欄位：" + Object.keys(d).join(', ');
-
-            // 多樣化讀取 (s_d0 或 pm2_5 都抓)
-            const pmVal = d.s_d0 ?? d.pm2_5 ?? d.s_d2;
-            const tVal = d.s_t0 ?? d.temperature ?? d.t;
-            const hVal = d.s_h0 ?? d.humidity ?? d.h;
-            const cVal = d.s_g8 ?? d.co2 ?? d.s_gg;
-
-            if (pmVal !== undefined) document.getElementById('pm25').innerText = Math.round(pmVal);
-            if (tVal !== undefined) document.getElementById('temp').innerText = parseFloat(tVal).toFixed(1);
-            if (hVal !== undefined) document.getElementById('humi').innerText = Math.round(hVal);
-            if (cVal !== undefined) document.getElementById('co2').innerText = Math.round(cVal);
-
-            document.getElementById('status').innerText = "● 數據更新於 " + new Date().toLocaleTimeString();
-
-            // 抓取歷史並繪圖
-            const hRes = await fetch(`https://pm25.lass-net.org/data/history.php?device_id=${DEVICE_ID}`);
+            // 更新歷史圖表
+            const hRes = await fetch(`https://pm25.lass-net.org/data/history.php?device_id=${currentID}`);
             const hJson = await hRes.json();
-            const hList = hJson?.feeds?.[0]?.[DEVICE_ID] || hJson?.feeds?.[0] || [];
-            
+            const hList = hJson?.feeds?.[0]?.[currentID] || hJson?.feeds?.[0] || [];
             if (Array.isArray(hList) && hList.length > 0) {
                 const recent = hList.slice(-30);
                 mainChart.data.labels = recent.map(f => {
@@ -99,9 +107,15 @@
                 mainChart.update();
             }
         } catch (e) {
-            document.getElementById('status').innerText = "● 網路連線或解析錯誤";
+            console.error(e);
         }
     }
+
+    function resetValues() {
+        ['pm25','temp','humi','co2'].forEach(id => document.getElementById(id).innerText = '--');
+    }
+
+    window.onload = () => { initChart(); updateData(); updateTimer = setInterval(updateData, 30000); };
 </script>
 </body>
 </html>
