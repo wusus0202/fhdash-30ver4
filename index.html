@@ -1,101 +1,148 @@
 <!DOCTYPE html>
-<html lang="zh-Hant">
+<html lang="zh-TW">
 <head>
-<meta charset="UTF-8" />
-<title>FH EnviroDashboard</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<link rel="stylesheet" href="style.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>小芳堂即時監測站</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: -apple-system, sans-serif; background: #f0f2f5; margin: 0; padding: 20px; color: #333; }
+        .container { max-width: 900px; margin: 0 auto; }
+        .header { text-align: center; margin-bottom: 20px; }
+        
+        /* 數據卡片佈局 */
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 20px; }
+        .stat-card { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); text-align: center; }
+        .stat-card .label { font-size: 0.9rem; color: #666; margin-bottom: 5px; }
+        .stat-card .value { font-size: 2rem; font-weight: bold; color: #2c3e50; }
+        .stat-card .unit { font-size: 0.8rem; color: #888; }
+
+        /* 圖表區域 */
+        .chart-container { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); height: 400px; }
+        .status-bar { text-align: right; font-size: 0.8rem; color: #999; margin-top: 10px; }
+        
+        .pm25-good { color: #27ae60 !important; }
+        .pm25-warn { color: #f39c12 !important; }
+    </style>
 </head>
 <body>
-<header class="header">
- 芳和實驗中學環境現況
- <div id="data-status">載入中...</div>
-</header>
 
-<div class="app-container">
- <div class="app">
-   <aside class="sidebar" id="sidebar">
-     <div class="dropdown-container">
-       <button class="dropdown-btn" id="source-selector">小芳堂 ▼</button>
-       <ul class="dropdown-list hidden" id="source-list">
-         <li data-source="A">小芳堂</li>
-         <li data-source="B">司令台</li>
-         <li data-source="C">小田原</li>
-         <li data-source="D">腳踏車練習場</li>
-         <li data-source="E">植物觀測</li>
-       </ul>
-     </div>
-     <div class="menu">
-       <div data-modal="temperature">溫度</div>
-       <div data-modal="sunlight">日照</div>
-       <div data-modal="windspeed">風速</div>
-       <div data-modal="humidity">濕度</div>
-       <div data-modal="co2">碳排放</div>
-       <div data-modal="tvoc">有機物</div>
-       <div data-modal="pm25">PM2.5</div>
-       <div data-modal="electricity">用電量</div>
-     </div>
-     <div class="clock" id="datetime">
-       <div class="clock-svg">
-         <svg id="clock-svg" viewBox="0 0 100 100">
-           <circle cx="50" cy="50" r="45" fill="none" stroke="#fff" stroke-width="4"/>
-           <rect id="hour-hand" x="48" y="25" width="4" height="25" rx="2" fill="#ddd" transform-origin="50px 50px"/>
-           <rect id="minute-hand" x="48.5" y="18" width="3" height="32" rx="1.5" fill="#fff" transform-origin="50px 50px"/>
-           <rect id="second-hand" x="49" y="16" width="2" height="34" rx="1" fill="#ff4444" transform-origin="50px 50px"/>
-           <circle cx="50" cy="50" r="4" fill="#fff"/>
-         </svg>
-       </div>
-       <div class="clock-digital">
-         <div class="date-display" id="date-display"></div>
-         <div class="time-display" id="time-display"></div>
-       </div>
-     </div>
-   </aside>
+<div class="container">
+    <div class="header">
+        <h1>🏫 小芳堂環境監測</h1>
+        <div id="update-time">最後更新：載入中...</div>
+    </div>
 
-   <!-- 標準 + 植物頁面 -->
-   <main class="main" id="standard-layout">
-     <section class="top-block columns">
-       <div class="pm25" id="pm25-card">
-         <div class="pm25-label">PM2.5</div>
-         <div class="pm25-value" id="pm25-value">-- μg/m³</div>
-       </div>
-       <div class="right-stack">
-         <div class="right-card" id="temperature-card">-- °C</div>
-         <div class="right-card" id="sunlight-card">-- lux</div>
-         <div class="right-card" id="windspeed-card">-- m/s</div>
-         <div class="right-card" id="humidity-card">-- %</div>
-       </div>
-     </section>
-     <section class="bottom-block columns">
-       <div class="connected-group">
-         <div class="connected-card" id="co2-card">-- ppm</div>
-         <div class="connected-card" id="tvoc-card">-- ppb</div>
-         <div class="connected-card" id="electricity-card">-- kWh</div>
-       </div>
-       <div class="small-card-row">
-         <div class="small-card" id="precipitation-card">-- %</div>
-         <div class="small-card" id="icon-card">🌤️</div>
-       </div>
-     </section>
-   </main>
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="label">PM2.5</div>
+            <div class="value" id="pm25">--</div>
+            <div class="unit">µg/m³</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">溫度</div>
+            <div class="value" id="temp">--</div>
+            <div class="unit">°C</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">濕度</div>
+            <div class="value" id="humi">--</div>
+            <div class="unit">%</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">二氧化碳</div>
+            <div class="value" id="co2">--</div>
+            <div class="unit">ppm</div>
+        </div>
+    </div>
 
-   <main class="main" id="plant-layout"></main>
- </div>
+    <div class="chart-container">
+        <canvas id="mainChart"></canvas>
+    </div>
+    
+    <div class="status-bar" id="status">● 正在連線至 LASS 系統...</div>
 </div>
 
-<div class="modal-overlay" id="history-modal">
- <div class="modal-content">
-   <div class="modal-header">
-     <h1 class="modal-title" id="modal-title"></h1>
-     <button class="modal-close" id="modal-close">&times;</button>
-   </div>
-   <div class="modal-body">
-     <h3>歷史數據圖表將顯示在這裡</h3>
-     <p>這是 <span id="modal-type"></span> 的歷史數據區域。</p>
-   </div>
- </div>
-</div>
+<script>
+    const DEVICE_ID = 'B827EB63D1C8'; // 小芳堂 ID
+    let mainChart;
 
-<script src="main.js"></script>
+    async function init() {
+        initChart();
+        updateData();
+        // 每 30 秒自動更新一次
+        setInterval(updateData, 30000);
+    }
+
+    function initChart() {
+        const ctx = document.getElementById('mainChart').getContext('2d');
+        mainChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'PM2.5 趨勢',
+                    data: [],
+                    borderColor: '#3498db',
+                    backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 3
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    title: { display: true, text: '過去 24 小時 PM2.5 變化 (LASS數據)' }
+                },
+                scales: {
+                    y: { beginAtZero: false }
+                }
+            }
+        });
+    }
+
+    async function updateData() {
+        try {
+            // 1. 抓取最新數據
+            const lastRes = await fetch(`https://pm25.lass-net.org/data/last.php?device_id=${DEVICE_ID}`);
+            const lastJson = await lastRes.json();
+            const d = lastJson.feeds[0][DEVICE_ID];
+
+            // 更新卡片
+            document.getElementById('pm25').textContent = Math.round(d.s_d0);
+            document.getElementById('temp').textContent = d.s_t0.toFixed(1);
+            document.getElementById('humi').textContent = Math.round(d.s_h0);
+            document.getElementById('co2').textContent = Math.round(d.s_g8 || 0);
+            
+            // 更新時間
+            document.getElementById('update-time').textContent = '最後更新：' + new Date().toLocaleTimeString();
+
+            // 2. 抓取歷史數據並更新圖表
+            const histRes = await fetch(`https://pm25.lass-net.org/data/history.php?device_id=${DEVICE_ID}`);
+            const histJson = await histRes.json();
+            const historyFeeds = histJson.feeds[0][DEVICE_ID].slice(-30); // 取最近 30 筆
+
+            const labels = historyFeeds.map(f => {
+                const t = new Date(f.timestamp);
+                return `${t.getHours()}:${String(t.getMinutes()).padStart(2, '0')}`;
+            });
+            const values = historyFeeds.map(f => f.s_d0);
+
+            mainChart.data.labels = labels;
+            mainChart.data.datasets[0].data = values;
+            mainChart.update();
+
+            document.getElementById('status').innerHTML = '● 數據連線正常 (自動每 30s 更新)';
+        } catch (e) {
+            console.error(e);
+            document.getElementById('status').innerHTML = '● 數據讀取失敗，請檢查網路';
+        }
+    }
+
+    window.onload = init;
+</script>
+
 </body>
 </html>
