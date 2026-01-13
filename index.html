@@ -4,25 +4,19 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>小芳堂即時監測站</title>
+    <link rel="icon" href="data:;base64,iVBORw0KGgo=">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body { font-family: -apple-system, sans-serif; background: #f0f2f5; margin: 0; padding: 20px; color: #333; }
         .container { max-width: 900px; margin: 0 auto; }
         .header { text-align: center; margin-bottom: 20px; }
-        
-        /* 數據卡片佈局 */
         .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 20px; }
         .stat-card { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); text-align: center; }
         .stat-card .label { font-size: 0.9rem; color: #666; margin-bottom: 5px; }
         .stat-card .value { font-size: 2rem; font-weight: bold; color: #2c3e50; }
         .stat-card .unit { font-size: 0.8rem; color: #888; }
-
-        /* 圖表區域 */
         .chart-container { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); height: 400px; }
         .status-bar { text-align: right; font-size: 0.8rem; color: #999; margin-top: 10px; }
-        
-        .pm25-good { color: #27ae60 !important; }
-        .pm25-warn { color: #f39c12 !important; }
     </style>
 </head>
 <body>
@@ -30,7 +24,7 @@
 <div class="container">
     <div class="header">
         <h1>🏫 小芳堂環境監測</h1>
-        <div id="update-time">最後更新：載入中...</div>
+        <div id="update-time">最後更新：正在連接 LASS...</div>
     </div>
 
     <div class="stats-grid">
@@ -60,17 +54,16 @@
         <canvas id="mainChart"></canvas>
     </div>
     
-    <div class="status-bar" id="status">● 正在連線至 LASS 系統...</div>
+    <div class="status-bar" id="status">● 初始化中...</div>
 </div>
 
 <script>
-    const DEVICE_ID = 'B827EB63D1C8'; // 小芳堂 ID
+    const DEVICE_ID = 'B827EB63D1C8'; 
     let mainChart;
 
     async function init() {
         initChart();
-        updateData();
-        // 每 30 秒自動更新一次
+        await updateData(); // 第一次強制等待更新
         setInterval(updateData, 30000);
     }
 
@@ -78,28 +71,8 @@
         const ctx = document.getElementById('mainChart').getContext('2d');
         mainChart = new Chart(ctx, {
             type: 'line',
-            data: {
-                labels: [],
-                datasets: [{
-                    label: 'PM2.5 趨勢',
-                    data: [],
-                    borderColor: '#3498db',
-                    backgroundColor: 'rgba(52, 152, 219, 0.1)',
-                    fill: true,
-                    tension: 0.4,
-                    pointRadius: 3
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    title: { display: true, text: '過去 24 小時 PM2.5 變化 (LASS數據)' }
-                },
-                scales: {
-                    y: { beginAtZero: false }
-                }
-            }
+            data: { labels: [], datasets: [{ label: 'PM2.5 趨勢', data: [], borderColor: '#3498db', backgroundColor: 'rgba(52, 152, 219, 0.1)', fill: true, tension: 0.4 }] },
+            options: { responsive: true, maintainAspectRatio: false }
         });
     }
 
@@ -108,41 +81,44 @@
             // 1. 抓取最新數據
             const lastRes = await fetch(`https://pm25.lass-net.org/data/last.php?device_id=${DEVICE_ID}`);
             const lastJson = await lastRes.json();
-            const d = lastJson.feeds[0][DEVICE_ID];
-
-            // 更新卡片
-            document.getElementById('pm25').textContent = Math.round(d.s_d0);
-            document.getElementById('temp').textContent = d.s_t0.toFixed(1);
-            document.getElementById('humi').textContent = Math.round(d.s_h0);
-            document.getElementById('co2').textContent = Math.round(d.s_g8 || 0);
             
-            // 更新時間
-            document.getElementById('update-time').textContent = '最後更新：' + new Date().toLocaleTimeString();
+            // 重要：安全檢查 (防禦 undefined 報錯)
+            if (lastJson && lastJson.feeds && lastJson.feeds[0] && lastJson.feeds[0][DEVICE_ID]) {
+                const d = lastJson.feeds[0][DEVICE_ID];
+                
+                document.getElementById('pm25').textContent = Math.round(d.s_d0 || 0);
+                document.getElementById('temp').textContent = (d.s_t0 || 0).toFixed(1);
+                document.getElementById('humi').textContent = Math.round(d.s_h0 || 0);
+                document.getElementById('co2').textContent = Math.round(d.s_g8 || 0);
+                document.getElementById('update-time').textContent = '最後更新：' + new Date().toLocaleTimeString();
+                document.getElementById('status').innerHTML = '● 數據更新完成';
+            } else {
+                document.getElementById('status').innerHTML = '● 設備目前離線中...';
+            }
 
-            // 2. 抓取歷史數據並更新圖表
+            // 2. 抓取歷史數據更新圖表
             const histRes = await fetch(`https://pm25.lass-net.org/data/history.php?device_id=${DEVICE_ID}`);
             const histJson = await histRes.json();
-            const historyFeeds = histJson.feeds[0][DEVICE_ID].slice(-30); // 取最近 30 筆
+            
+            if (histJson && histJson.feeds && histJson.feeds[0] && histJson.feeds[0][DEVICE_ID]) {
+                const historyFeeds = histJson.feeds[0][DEVICE_ID].slice(-25); 
+                const labels = historyFeeds.map(f => {
+                    const t = new Date(f.timestamp);
+                    return `${t.getHours()}:${String(t.getMinutes()).padStart(2, '0')}`;
+                });
+                const values = historyFeeds.map(f => f.s_d0);
 
-            const labels = historyFeeds.map(f => {
-                const t = new Date(f.timestamp);
-                return `${t.getHours()}:${String(t.getMinutes()).padStart(2, '0')}`;
-            });
-            const values = historyFeeds.map(f => f.s_d0);
-
-            mainChart.data.labels = labels;
-            mainChart.data.datasets[0].data = values;
-            mainChart.update();
-
-            document.getElementById('status').innerHTML = '● 數據連線正常 (自動每 30s 更新)';
+                mainChart.data.labels = labels;
+                mainChart.data.datasets[0].data = values;
+                mainChart.update();
+            }
         } catch (e) {
-            console.error(e);
-            document.getElementById('status').innerHTML = '● 數據讀取失敗，請檢查網路';
+            console.error("更新錯誤:", e);
+            document.getElementById('status').innerHTML = '● 網路連線超時';
         }
     }
 
     window.onload = init;
 </script>
-
 </body>
 </html>
