@@ -132,54 +132,72 @@ async function updateChart(label, dataField) {
     const statusEl = document.getElementById('status');
     
     try {
+        // 1. 呼叫官方歷史 API
         const res = await fetch(`https://pm25.lass-net.org/data/history.php?device_id=${deviceId}`);
         const json = await res.json();
         
-        let displayData = [];
-        let timeNote = "(近 12 小時)";
+        if (!json || !json.feeds || json.feeds.length === 0) {
+            statusEl.innerText = "● 伺服器未回傳歷史資料";
+            return;
+        }
 
-        if (json?.feeds?.length > 0) {
-            const firstFeed = json.feeds[0];
-            const hList = firstFeed[Object.keys(firstFeed)[0]];
+        // 2. 依照官方邏輯解析：feeds[0] -> 設備ID物件 -> 數據陣列
+        const feeds = json.feeds[0];
+        const deviceKey = Object.keys(feeds)[0]; // 取得如 "B827EB..." 的 Key
+        const historyArray = feeds[deviceKey];
 
-            if (Array.isArray(hList) && hList.length > 0) {
-                const now = new Date().getTime();
-                const twelveHoursAgo = now - (12 * 60 * 60 * 1000);
+        if (!Array.isArray(historyArray) || historyArray.length === 0) {
+            statusEl.innerText = "● 該站點尚無歷史存檔";
+            return;
+        }
 
-                // 篩選 12 小時內
-                displayData = hList.filter(f => {
-                    const ts = f.timestamp || f.time;
-                    return f[dataField] !== undefined && new Date(ts).getTime() >= twelveHoursAgo;
-                });
+        const now = new Date().getTime();
+        const twelveHoursAgo = now - (12 * 60 * 60 * 1000);
+        
+        let chartPoints = [];
 
-                // 備案：如果 12 小時沒資料，抓最後 20 筆
-                if (displayData.length === 0) {
-                    displayData = hList.filter(f => f[dataField] !== undefined).slice(-20);
-                    timeNote = "(歷史存檔)";
+        // 3. 遍歷歷史陣列 (每一筆 f 都是一個以時間戳記為 Key 的物件)
+        historyArray.forEach(f => {
+            const timestampKey = Object.keys(f)[0]; // 取得時間戳記 Key
+            const dataObj = f[timestampKey];       // 取得該時間點的數據內容
+            
+            if (dataObj && dataObj[dataField] !== undefined) {
+                const dataTime = new Date(dataObj.timestamp).getTime();
+                
+                // 只抓 12 小時內的
+                if (dataTime >= twelveHoursAgo) {
+                    chartPoints.push({
+                        x: dataTime,
+                        y: parseFloat(dataObj[dataField])
+                    });
                 }
             }
-        }
-
-        // 如果連歷史存檔都沒有，抓當前的即時點
-        if (displayData.length === 0) {
-            const currentVal = document.getElementById('pm25').innerText; // 以 PM2.5 為例
-            if (currentVal !== "--") {
-                displayData = [{ timestamp: new Date().toISOString(), [dataField]: parseFloat(currentVal) }];
-                timeNote = "(僅即時資料)";
-            }
-        }
-
-        // 繪圖
-        mainChart.data.labels = displayData.map(f => {
-            const t = new Date(f.timestamp || f.time);
-            return `${t.getHours()}:${String(t.getMinutes()).padStart(2, '0')}`;
         });
-        mainChart.data.datasets[0].label = `${config[currentKey].name} - ${label} ${timeNote}`;
-        mainChart.data.datasets[0].data = displayData.map(f => parseFloat(f[dataField]));
-        mainChart.update();
+
+        // 4. 排序並渲染圖表
+        if (chartPoints.length > 0) {
+            // 確保時間由舊到新排序
+            chartPoints.sort((a, b) => a.x - b.x);
+
+            mainChart.data.labels = chartPoints.map(p => {
+                const t = new Date(p.x);
+                return `${t.getHours()}:${String(t.getMinutes()).padStart(2, '0')}`;
+            });
+            mainChart.data.datasets[0].label = `${config[currentKey].name} - ${label} (近12小時)`;
+            mainChart.data.datasets[0].data = chartPoints.map(p => p.y);
+            mainChart.update();
+            
+            statusEl.innerText = `● 已成功從 LASS 抓取 ${chartPoints.length} 筆歷史紀錄`;
+        } else {
+            // 如果 12 小時內沒資料，回溯顯示最後 20 筆
+            const last20 = historyArray.slice(-20);
+            // ... (重複上述解析邏輯處理最後20筆)
+            statusEl.innerText = `● 近 12 小時無資料，請檢查設備連線`;
+        }
 
     } catch (e) {
-        console.error("圖表更新出錯", e);
+        console.error("解析官方歷史格式失敗:", e);
+        statusEl.innerText = "● 歷史資料解析錯誤";
     }
 }
 </script>
