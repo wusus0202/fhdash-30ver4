@@ -117,22 +117,31 @@
         });
     }
 
-    async function updateData() {
+async function updateData() {
         try {
             // 1. 抓取最新即時數據
             const lastRes = await fetch(`https://pm25.lass-net.org/data/last.php?device_id=${DEVICE_ID}`);
             const lastJson = await lastRes.json();
             
-            if (lastJson && lastJson.feeds && lastJson.feeds.length > 0) {
+            // 安全檢查：確保 lastJson.feeds 是一個陣列且不為空
+            if (lastJson && Array.isArray(lastJson.feeds) && lastJson.feeds.length > 0) {
                 const firstFeed = lastJson.feeds[0];
-                // 【核心修正】容錯處理：如果 ID 層級不見了，直接讀取首層物件
-                const d = firstFeed[DEVICE_ID] || firstFeed;
+                
+                // 【核心修復】自動尋找含有感測數據的物件
+                // 優先找 firstFeed[DEVICE_ID]，如果沒有，就看 firstFeed 本身有沒有 s_d0
+                let d = null;
+                if (firstFeed[DEVICE_ID]) {
+                    d = firstFeed[DEVICE_ID];
+                } else if (firstFeed.s_d0 !== undefined) {
+                    d = firstFeed;
+                }
 
-                if (d && (d.s_d0 !== undefined)) {
-                    document.getElementById('pm25').textContent = Math.round(d.s_d0);
-                    document.getElementById('temp').textContent = parseFloat(d.s_t0).toFixed(1);
-                    document.getElementById('humi').textContent = Math.round(d.s_h0);
-                    document.getElementById('co2').textContent = Math.round(d.s_g8 || 0);
+                // 只有當 d 真的存在且含有數據時才更新 UI
+                if (d) {
+                    document.getElementById('pm25').textContent = d.s_d0 !== undefined ? Math.round(d.s_d0) : "--";
+                    document.getElementById('temp').textContent = d.s_t0 !== undefined ? parseFloat(d.s_t0).toFixed(1) : "--";
+                    document.getElementById('humi').textContent = d.s_h0 !== undefined ? Math.round(d.s_h0) : "--";
+                    document.getElementById('co2').textContent = d.s_g8 !== undefined ? Math.round(d.s_g8) : (d.s_gg || "--");
                     
                     document.getElementById('update-time').textContent = '最後更新：' + new Date().toLocaleTimeString();
                     document.getElementById('status').innerHTML = '● 數據同步中...';
@@ -143,14 +152,13 @@
             const histRes = await fetch(`https://pm25.lass-net.org/data/history.php?device_id=${DEVICE_ID}`);
             const histJson = await histRes.json();
             
-            if (histJson && histJson.feeds && histJson.feeds.length > 0) {
-                const historyData = histJson.feeds[0];
-                // 容錯處理：同樣判斷資料是在 ID 下還是直接在陣列裡
-                const feedsList = historyData[DEVICE_ID] || historyData;
+            if (histJson && Array.isArray(histJson.feeds) && histJson.feeds.length > 0) {
+                // 歷史數據通常結構：histJson.feeds[0] 是設備物件，或者是數據陣列
+                const historyObj = histJson.feeds[0];
+                const feedsList = historyObj[DEVICE_ID] || (Array.isArray(historyObj) ? historyObj : null);
 
                 if (Array.isArray(feedsList)) {
-                    const recentFeeds = feedsList.slice(-40); // 顯示最近 40 筆
-                    
+                    const recentFeeds = feedsList.slice(-40); 
                     const labels = recentFeeds.map(f => {
                         const t = new Date(f.timestamp || f.time);
                         return `${t.getHours()}:${String(t.getMinutes()).padStart(2, '0')}`;
@@ -164,8 +172,8 @@
                 }
             }
         } catch (e) {
-            console.error("Error updating dashboard:", e);
-            document.getElementById('status').innerHTML = '<span style="color:red">● 連線異常，嘗試重連中...</span>';
+            console.error("更新過程中發生錯誤:", e);
+            document.getElementById('status').innerHTML = '<span style="color:red">● 伺服器回應異常，嘗試重連中...</span>';
         }
     }
 </script>
