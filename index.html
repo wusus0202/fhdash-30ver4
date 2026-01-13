@@ -76,25 +76,53 @@
         });
     }
 
-    async function updateData() {
+  async function updateData() {
         try {
             // 1. 抓取最新數據
             const lastRes = await fetch(`https://pm25.lass-net.org/data/last.php?device_id=${DEVICE_ID}`);
             const lastJson = await lastRes.json();
             
-            // 重要：安全檢查 (防禦 undefined 報錯)
-            if (lastJson && lastJson.feeds && lastJson.feeds[0] && lastJson.feeds[0][DEVICE_ID]) {
-                const d = lastJson.feeds[0][DEVICE_ID];
-                
-                document.getElementById('pm25').textContent = Math.round(d.s_d0 || 0);
-                document.getElementById('temp').textContent = (d.s_t0 || 0).toFixed(1);
-                document.getElementById('humi').textContent = Math.round(d.s_h0 || 0);
-                document.getElementById('co2').textContent = Math.round(d.s_g8 || 0);
-                document.getElementById('update-time').textContent = '最後更新：' + new Date().toLocaleTimeString();
-                document.getElementById('status').innerHTML = '● 數據更新完成';
+            // 安全檢查：確保 feeds 存在且裡面有資料
+            if (lastJson && lastJson.feeds && lastJson.feeds.length > 0) {
+                // LASS 的 last.php 有時會用裝置 ID 當 Key，有時直接放在 feeds[0]
+                const feed = lastJson.feeds[0];
+                const d = feed[DEVICE_ID] || feed; // 修正：如果 feed[DEVICE_ID] 不存在，就直接用 feed
+
+                if (d && typeof d === 'object') {
+                    document.getElementById('pm25').textContent = Math.round(d.s_d0 ?? 0);
+                    document.getElementById('temp').textContent = (d.s_t0 ?? 0).toFixed(1);
+                    document.getElementById('humi').textContent = Math.round(d.s_h0 ?? 0);
+                    document.getElementById('co2').textContent = Math.round(d.s_g8 ?? 0);
+                    document.getElementById('update-time').textContent = '最後更新：' + new Date().toLocaleTimeString();
+                    document.getElementById('status').innerHTML = '● 最新數據更新成功';
+                }
             } else {
-                document.getElementById('status').innerHTML = '● 設備目前離線中...';
+                document.getElementById('status').innerHTML = '● 找不到設備數據';
             }
+
+            // 2. 抓取歷史數據更新圖表
+            const histRes = await fetch(`https://pm25.lass-net.org/data/history.php?device_id=${DEVICE_ID}`);
+            const histJson = await histRes.json();
+            
+            if (histJson && histJson.feeds && histJson.feeds.length > 0) {
+                // 歷史數據的層級通常是 feeds[0][DEVICE_ID]
+                const historyFeeds = (histJson.feeds[0][DEVICE_ID] || histJson.feeds).slice(-30); 
+                
+                const labels = historyFeeds.map(f => {
+                    const t = new Date(f.timestamp || f.time);
+                    return `${t.getHours()}:${String(t.getMinutes()).padStart(2, '0')}`;
+                });
+                const values = historyFeeds.map(f => f.s_d0 ?? 0);
+
+                mainChart.data.labels = labels;
+                mainChart.data.datasets[0].data = values;
+                mainChart.update();
+            }
+        } catch (e) {
+            console.error("更新出錯:", e);
+            document.getElementById('status').innerHTML = '● 數據解析失敗';
+        }
+    }
 
             // 2. 抓取歷史數據更新圖表
             const histRes = await fetch(`https://pm25.lass-net.org/data/history.php?device_id=${DEVICE_ID}`);
