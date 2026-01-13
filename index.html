@@ -114,53 +114,64 @@
         });
     }
 
-    async function updateData() {
-        try {
-            // 【修正處】使用 ${DEVICE_ID} 變數，而不是直接放文字
-            const lastRes = await fetch(`https://pm25.lass-net.org/data/last.php?device_id=${DEVICE_ID}`);
-            const lastJson = await lastRes.json();
-            
-            if (lastJson && lastJson.feeds && lastJson.feeds.length > 0) {
-                const firstFeed = lastJson.feeds[0];
-                const d = firstFeed[DEVICE_ID] || firstFeed;
+async function updateData() {
+    try {
+        // 1. 抓取最新即時數據
+        const lastRes = await fetch(`https://pm25.lass-net.org/data/last.php?device_id=${DEVICE_ID}`);
+        const lastJson = await lastRes.json();
+        
+        const firstFeed = lastJson?.feeds?.[0];
+        if (firstFeed) {
+            // 自動偵測層級
+            const d = firstFeed[DEVICE_ID] || firstFeed;
 
-                if (d && typeof d === 'object') {
-                    document.getElementById('pm25').textContent = d.s_d0 !== undefined ? Math.round(d.s_d0) : "--";
-                    document.getElementById('temp').textContent = d.s_t0 !== undefined ? parseFloat(d.s_t0).toFixed(1) : "--";
-                    document.getElementById('humi').textContent = d.s_h0 !== undefined ? Math.round(d.s_h0) : "--";
-                    document.getElementById('co2').textContent = d.s_g8 !== undefined ? Math.round(d.s_g8) : (d.s_gg || "--");
-                    
-                    document.getElementById('update-time').textContent = '最後更新：' + new Date().toLocaleTimeString();
-                    document.getElementById('status').innerHTML = '● 數據同步中...';
-                }
+            if (d && typeof d === 'object') {
+                // 【進化版】多欄位自動偵測
+                const pmVal = d.s_d0 ?? d.pm2_5 ?? d.s_d2 ?? null;
+                const tVal = d.s_t0 ?? d.temperature ?? d.t ?? null;
+                const hVal = d.s_h0 ?? d.humidity ?? d.h ?? null;
+                const cVal = d.s_g8 ?? d.co2 ?? d.s_gg ?? null;
+
+                // 更新 UI，如果真的都沒有，就顯示 "無資料"
+                document.getElementById('pm25').textContent = (pmVal !== null) ? Math.round(pmVal) : "無資料";
+                document.getElementById('temp').textContent = (tVal !== null) ? parseFloat(tVal).toFixed(1) : "無資料";
+                document.getElementById('humi').textContent = (hVal !== null) ? Math.round(hVal) : "無資料";
+                document.getElementById('co2').textContent = (cVal !== null) ? Math.round(cVal) : "無資料";
+                
+                document.getElementById('update-time').textContent = '最後更新：' + new Date().toLocaleTimeString();
+                document.getElementById('status').innerHTML = '● 連線成功，已更新最新欄位';
             }
-
-            const histRes = await fetch(`https://pm25.lass-net.org/data/history.php?device_id=${DEVICE_ID}`);
-            const histJson = await histRes.json();
-            
-            if (histJson && histJson.feeds && histJson.feeds.length > 0) {
-                const historyObj = histJson.feeds[0];
-                const feedsList = historyObj[DEVICE_ID] || (Array.isArray(historyObj) ? historyObj : null);
-
-                if (Array.isArray(feedsList)) {
-                    const recentFeeds = feedsList.slice(-40); 
-                    const labels = recentFeeds.map(f => {
-                        const t = new Date(f.timestamp || f.time);
-                        return `${t.getHours()}:${String(t.getMinutes()).padStart(2, '0')}`;
-                    });
-                    const values = recentFeeds.map(f => f.s_d0 ?? 0);
-
-                    mainChart.data.labels = labels;
-                    mainChart.data.datasets[0].data = values;
-                    mainChart.update();
-                    document.getElementById('status').innerHTML = '● 雲端連線正常';
-                }
-            }
-        } catch (e) {
-            console.error("更新錯誤:", e);
-            document.getElementById('status').innerHTML = '<span style="color:red">● 連線異常</span>';
         }
+
+        // 2. 抓取歷史數據並更新圖表
+        const histRes = await fetch(`https://pm25.lass-net.org/data/history.php?device_id=${DEVICE_ID}`);
+        const histJson = await histRes.json();
+        
+        const historyObj = histJson?.feeds?.[0];
+        if (historyObj) {
+            const feedsList = historyObj[DEVICE_ID] || (Array.isArray(historyObj) ? historyObj : null);
+
+            if (Array.isArray(feedsList) && feedsList.length > 0) {
+                const recentFeeds = feedsList.slice(-40); 
+                const labels = recentFeeds.map(f => {
+                    const ts = f.timestamp || f.time || new Date();
+                    const t = new Date(ts);
+                    return `${t.getHours()}:${String(t.getMinutes()).padStart(2, '0')}`;
+                });
+                
+                // 歷史圖表也自動抓取有效欄位
+                const values = recentFeeds.map(f => f.s_d0 ?? f.pm2_5 ?? f.s_d2 ?? 0);
+
+                mainChart.data.labels = labels;
+                mainChart.data.datasets[0].data = values;
+                mainChart.update();
+            }
+        }
+    } catch (e) {
+        console.error("Update Error:", e);
+        document.getElementById('status').innerHTML = '<span style="color:red">● 伺服器無回應</span>';
     }
+}
 </script>
 
 </body>
