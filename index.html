@@ -31,8 +31,7 @@
         .chart-container { height: 350px; position: relative; }
         .status-bar { text-align: left; font-size: 0.8rem; color: #999; margin-top: 15px; display: flex; align-items: center; gap: 5px; }
         
-        /* 動態顏色 */
-        .val-pm25 { color: #2ecc71; } /* 預設綠色 */
+        .val-pm25 { color: #2ecc71; }
     </style>
 </head>
 <body>
@@ -78,11 +77,10 @@
     const DEVICE_ID = 'B827EB63D1C8'; 
     let mainChart;
 
-    // 初始化網頁
     window.onload = async () => {
         initChart();
-        await updateData(); // 立即抓取第一次資料
-        setInterval(updateData, 30000); // 之後每 30 秒更新一次
+        await updateData(); 
+        setInterval(updateData, 30000); 
     };
 
     function initChart() {
@@ -107,7 +105,7 @@
                 maintainAspectRatio: false,
                 plugins: {
                     legend: { position: 'top' },
-                    title: { display: true, text: '最近 24 小時數值變化' }
+                    title: { display: true, text: '最近 24 小時 PM2.5 變化' }
                 },
                 scales: {
                     x: { grid: { display: false } },
@@ -117,34 +115,25 @@
         });
     }
 
-async function updateData() {
+    async function updateData() {
         try {
             // 1. 抓取最新即時數據
-            const lastRes = await fetch(`https://pm25.lass-net.org/data/last.php?device_id=${B827EB63D1C8}`);
+            const lastRes = await fetch(`https://pm25.lass-net.org/data/last.php?device_id=${DEVICE_ID}`);
             const lastJson = await lastRes.json();
             
-            // 安全檢查：確保 lastJson.feeds 是一個陣列且不為空
-            if (lastJson && Array.isArray(lastJson.feeds) && lastJson.feeds.length > 0) {
-                const firstFeed = lastJson.feeds[0];
-                
-                // 【核心修復】自動尋找含有感測數據的物件
-                // 優先找 firstFeed[DEVICE_ID]，如果沒有，就看 firstFeed 本身有沒有 s_d0
-                let d = null;
-                if (firstFeed[DEVICE_ID]) {
-                    d = firstFeed[DEVICE_ID];
-                } else if (firstFeed.s_d0 !== undefined) {
-                    d = firstFeed;
-                }
+            const firstFeed = lastJson?.feeds?.[0];
+            if (firstFeed) {
+                // 自動偵測數據層級，避免 TypeError
+                const d = firstFeed[DEVICE_ID] || firstFeed;
 
-                // 只有當 d 真的存在且含有數據時才更新 UI
-                if (d) {
+                if (d && typeof d === 'object') {
                     document.getElementById('pm25').textContent = d.s_d0 !== undefined ? Math.round(d.s_d0) : "--";
                     document.getElementById('temp').textContent = d.s_t0 !== undefined ? parseFloat(d.s_t0).toFixed(1) : "--";
                     document.getElementById('humi').textContent = d.s_h0 !== undefined ? Math.round(d.s_h0) : "--";
                     document.getElementById('co2').textContent = d.s_g8 !== undefined ? Math.round(d.s_g8) : (d.s_gg || "--");
                     
                     document.getElementById('update-time').textContent = '最後更新：' + new Date().toLocaleTimeString();
-                    document.getElementById('status').innerHTML = '● 數據同步中...';
+                    document.getElementById('status').innerHTML = '● 即時數據更新成功';
                 }
             }
 
@@ -152,15 +141,15 @@ async function updateData() {
             const histRes = await fetch(`https://pm25.lass-net.org/data/history.php?device_id=${DEVICE_ID}`);
             const histJson = await histRes.json();
             
-            if (histJson && Array.isArray(histJson.feeds) && histJson.feeds.length > 0) {
-                // 歷史數據通常結構：histJson.feeds[0] 是設備物件，或者是數據陣列
-                const historyObj = histJson.feeds[0];
+            const historyObj = histJson?.feeds?.[0];
+            if (historyObj) {
                 const feedsList = historyObj[DEVICE_ID] || (Array.isArray(historyObj) ? historyObj : null);
 
                 if (Array.isArray(feedsList)) {
                     const recentFeeds = feedsList.slice(-40); 
                     const labels = recentFeeds.map(f => {
-                        const t = new Date(f.timestamp || f.time);
+                        const ts = f.timestamp || f.time || new Date();
+                        const t = new Date(ts);
                         return `${t.getHours()}:${String(t.getMinutes()).padStart(2, '0')}`;
                     });
                     const values = recentFeeds.map(f => f.s_d0 ?? 0);
@@ -168,12 +157,12 @@ async function updateData() {
                     mainChart.data.labels = labels;
                     mainChart.data.datasets[0].data = values;
                     mainChart.update();
-                    document.getElementById('status').innerHTML = '● 雲端連線正常 (每 30 秒自動刷新)';
+                    document.getElementById('status').innerHTML = '● 雲端數據同步正常';
                 }
             }
         } catch (e) {
-            console.error("更新過程中發生錯誤:", e);
-            document.getElementById('status').innerHTML = '<span style="color:red">● 伺服器回應異常，嘗試重連中...</span>';
+            console.error("Update Error:", e);
+            document.getElementById('status').innerHTML = '<span style="color:red">● 伺服器連線中...</span>';
         }
     }
 </script>
