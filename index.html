@@ -7,146 +7,168 @@
     <link rel="icon" href="data:;base64,iVBORw0KGgo=">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        body { font-family: -apple-system, sans-serif; background: #f0f2f5; margin: 0; padding: 20px; color: #333; }
+        :root {
+            --bg-color: #f0f2f5;
+            --card-bg: #ffffff;
+            --primary-color: #3498db;
+            --text-main: #2c3e50;
+        }
+        body { font-family: -apple-system, "Microsoft JhengHei", sans-serif; background: var(--bg-color); margin: 0; padding: 20px; color: #333; }
         .container { max-width: 900px; margin: 0 auto; }
-        .header { text-align: center; margin-bottom: 20px; }
-        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 20px; }
-        .stat-card { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); text-align: center; }
-        .stat-card .label { font-size: 0.9rem; color: #666; margin-bottom: 5px; }
-        .stat-card .value { font-size: 2rem; font-weight: bold; color: #2c3e50; }
-        .stat-card .unit { font-size: 0.8rem; color: #888; }
-        .chart-container { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); height: 400px; }
-        .status-bar { text-align: right; font-size: 0.8rem; color: #999; margin-top: 10px; }
+        .header { text-align: center; margin-bottom: 25px; }
+        .header h1 { margin: 0; color: var(--text-main); font-size: 1.8rem; }
+        #update-time { font-size: 0.9rem; color: #888; margin-top: 5px; }
+
+        /* 數據卡片佈局 */
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 25px; }
+        .stat-card { background: var(--card-bg); padding: 20px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); text-align: center; }
+        .stat-card .label { font-size: 0.9rem; color: #666; margin-bottom: 8px; font-weight: bold; }
+        .stat-card .value { font-size: 2.2rem; font-weight: 800; color: var(--text-main); }
+        .stat-card .unit { font-size: 0.8rem; color: #aaa; margin-left: 3px; }
+
+        /* 圖表區域 */
+        .chart-section { background: var(--card-bg); padding: 25px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+        .chart-container { height: 350px; position: relative; }
+        .status-bar { text-align: left; font-size: 0.8rem; color: #999; margin-top: 15px; display: flex; align-items: center; gap: 5px; }
+        
+        /* 動態顏色 */
+        .val-pm25 { color: #2ecc71; } /* 預設綠色 */
     </style>
 </head>
 <body>
 
 <div class="container">
     <div class="header">
-        <h1>🏫 小芳堂環境監測</h1>
-        <div id="update-time">最後更新：正在連接 LASS...</div>
+        <h1>🏫 芳和實驗中學 - 小芳堂監測</h1>
+        <div id="update-time">正在連線至 LASS 伺服器...</div>
     </div>
 
     <div class="stats-grid">
         <div class="stat-card">
-            <div class="label">PM2.5</div>
-            <div class="value" id="pm25">--</div>
-            <div class="unit">µg/m³</div>
+            <div class="label">🌫️ PM2.5</div>
+            <div class="value val-pm25" id="pm25">--</div>
+            <span class="unit">µg/m³</span>
         </div>
         <div class="stat-card">
-            <div class="label">溫度</div>
+            <div class="label">🌡️ 溫度</div>
             <div class="value" id="temp">--</div>
-            <div class="unit">°C</div>
+            <span class="unit">°C</span>
         </div>
         <div class="stat-card">
-            <div class="label">濕度</div>
+            <div class="label">💧 濕度</div>
             <div class="value" id="humi">--</div>
-            <div class="unit">%</div>
+            <span class="unit">%</span>
         </div>
         <div class="stat-card">
-            <div class="label">二氧化碳</div>
+            <div class="label">☁️ CO2</div>
             <div class="value" id="co2">--</div>
-            <div class="unit">ppm</div>
+            <span class="unit">ppm</span>
         </div>
     </div>
 
-    <div class="chart-container">
-        <canvas id="mainChart"></canvas>
+    <div class="chart-section">
+        <div class="chart-container">
+            <canvas id="mainChart"></canvas>
+        </div>
+        <div class="status-bar" id="status">● 系統初始化中...</div>
     </div>
-    
-    <div class="status-bar" id="status">● 初始化中...</div>
 </div>
 
 <script>
     const DEVICE_ID = 'B827EB63D1C8'; 
     let mainChart;
 
-    async function init() {
+    // 初始化網頁
+    window.onload = async () => {
         initChart();
-        await updateData(); // 第一次強制等待更新
-        setInterval(updateData, 30000);
-    }
+        await updateData(); // 立即抓取第一次資料
+        setInterval(updateData, 30000); // 之後每 30 秒更新一次
+    };
 
     function initChart() {
         const ctx = document.getElementById('mainChart').getContext('2d');
         mainChart = new Chart(ctx, {
             type: 'line',
-            data: { labels: [], datasets: [{ label: 'PM2.5 趨勢', data: [], borderColor: '#3498db', backgroundColor: 'rgba(52, 152, 219, 0.1)', fill: true, tension: 0.4 }] },
-            options: { responsive: true, maintainAspectRatio: false }
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'PM2.5 趨勢 (µg/m³)',
+                    data: [],
+                    borderColor: '#3498db',
+                    backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 2,
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'top' },
+                    title: { display: true, text: '最近 24 小時數值變化' }
+                },
+                scales: {
+                    x: { grid: { display: false } },
+                    y: { beginAtZero: false }
+                }
+            }
         });
     }
 
-  async function updateData() {
+    async function updateData() {
         try {
-            // 1. 抓取最新數據
+            // 1. 抓取最新即時數據
             const lastRes = await fetch(`https://pm25.lass-net.org/data/last.php?device_id=${DEVICE_ID}`);
             const lastJson = await lastRes.json();
             
-            // 安全檢查：確保 feeds 存在且裡面有資料
             if (lastJson && lastJson.feeds && lastJson.feeds.length > 0) {
-                // LASS 的 last.php 有時會用裝置 ID 當 Key，有時直接放在 feeds[0]
-                const feed = lastJson.feeds[0];
-                const d = feed[DEVICE_ID] || feed; // 修正：如果 feed[DEVICE_ID] 不存在，就直接用 feed
+                const firstFeed = lastJson.feeds[0];
+                // 【核心修正】容錯處理：如果 ID 層級不見了，直接讀取首層物件
+                const d = firstFeed[DEVICE_ID] || firstFeed;
 
-                if (d && typeof d === 'object') {
-                    document.getElementById('pm25').textContent = Math.round(d.s_d0 ?? 0);
-                    document.getElementById('temp').textContent = (d.s_t0 ?? 0).toFixed(1);
-                    document.getElementById('humi').textContent = Math.round(d.s_h0 ?? 0);
-                    document.getElementById('co2').textContent = Math.round(d.s_g8 ?? 0);
+                if (d && (d.s_d0 !== undefined)) {
+                    document.getElementById('pm25').textContent = Math.round(d.s_d0);
+                    document.getElementById('temp').textContent = parseFloat(d.s_t0).toFixed(1);
+                    document.getElementById('humi').textContent = Math.round(d.s_h0);
+                    document.getElementById('co2').textContent = Math.round(d.s_g8 || 0);
+                    
                     document.getElementById('update-time').textContent = '最後更新：' + new Date().toLocaleTimeString();
-                    document.getElementById('status').innerHTML = '● 最新數據更新成功';
+                    document.getElementById('status').innerHTML = '● 數據同步中...';
                 }
-            } else {
-                document.getElementById('status').innerHTML = '● 找不到設備數據';
             }
 
-            // 2. 抓取歷史數據更新圖表
+            // 2. 抓取歷史數據並更新圖表
             const histRes = await fetch(`https://pm25.lass-net.org/data/history.php?device_id=${DEVICE_ID}`);
             const histJson = await histRes.json();
             
             if (histJson && histJson.feeds && histJson.feeds.length > 0) {
-                // 歷史數據的層級通常是 feeds[0][DEVICE_ID]
-                const historyFeeds = (histJson.feeds[0][DEVICE_ID] || histJson.feeds).slice(-30); 
-                
-                const labels = historyFeeds.map(f => {
-                    const t = new Date(f.timestamp || f.time);
-                    return `${t.getHours()}:${String(t.getMinutes()).padStart(2, '0')}`;
-                });
-                const values = historyFeeds.map(f => f.s_d0 ?? 0);
+                const historyData = histJson.feeds[0];
+                // 容錯處理：同樣判斷資料是在 ID 下還是直接在陣列裡
+                const feedsList = historyData[DEVICE_ID] || historyData;
 
-                mainChart.data.labels = labels;
-                mainChart.data.datasets[0].data = values;
-                mainChart.update();
+                if (Array.isArray(feedsList)) {
+                    const recentFeeds = feedsList.slice(-40); // 顯示最近 40 筆
+                    
+                    const labels = recentFeeds.map(f => {
+                        const t = new Date(f.timestamp || f.time);
+                        return `${t.getHours()}:${String(t.getMinutes()).padStart(2, '0')}`;
+                    });
+                    const values = recentFeeds.map(f => f.s_d0 ?? 0);
+
+                    mainChart.data.labels = labels;
+                    mainChart.data.datasets[0].data = values;
+                    mainChart.update();
+                    document.getElementById('status').innerHTML = '● 雲端連線正常 (每 30 秒自動刷新)';
+                }
             }
         } catch (e) {
-            console.error("更新出錯:", e);
-            document.getElementById('status').innerHTML = '● 數據解析失敗';
+            console.error("Error updating dashboard:", e);
+            document.getElementById('status').innerHTML = '<span style="color:red">● 連線異常，嘗試重連中...</span>';
         }
     }
-
-            // 2. 抓取歷史數據更新圖表
-            const histRes = await fetch(`https://pm25.lass-net.org/data/history.php?device_id=${DEVICE_ID}`);
-            const histJson = await histRes.json();
-            
-            if (histJson && histJson.feeds && histJson.feeds[0] && histJson.feeds[0][DEVICE_ID]) {
-                const historyFeeds = histJson.feeds[0][DEVICE_ID].slice(-25); 
-                const labels = historyFeeds.map(f => {
-                    const t = new Date(f.timestamp);
-                    return `${t.getHours()}:${String(t.getMinutes()).padStart(2, '0')}`;
-                });
-                const values = historyFeeds.map(f => f.s_d0);
-
-                mainChart.data.labels = labels;
-                mainChart.data.datasets[0].data = values;
-                mainChart.update();
-            }
-        } catch (e) {
-            console.error("更新錯誤:", e);
-            document.getElementById('status').innerHTML = '● 網路連線超時';
-        }
-    }
-
-    window.onload = init;
 </script>
+
 </body>
 </html>
