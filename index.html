@@ -3,235 +3,148 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>芳和監測站 - 多站切換版</title>
+    <title>芳和監測站 - 數據修正版</title>
     <link rel="icon" href="data:;base64,iVBORw0KGgo=">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        :root { --bg: #f8f9fa; --card: #ffffff; --primary: #2563eb; }
+        :root { --bg: #f8f9fa; --card: #ffffff; --primary: #2563eb; --radius: 15px; }
         body { font-family: -apple-system, sans-serif; background: var(--bg); padding: 20px; }
         .container { max-width: 900px; margin: 0 auto; }
-        
-        /* 站點切換按鈕 */
         .btn-group { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
-        button { padding: 10px 15px; border: none; border-radius: 8px; background: #ddd; cursor: pointer; transition: 0.3s; }
+        button { padding: 10px 20px; border: none; border-radius: 8px; background: #ddd; cursor: pointer; font-weight: bold; }
         button.active { background: var(--primary); color: white; }
-
         .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 20px; }
-        .stat-card { background: var(--card); padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); text-align: center; }
+        .stat-card { background: var(--card); padding: 25px; border-radius: var(--radius); box-shadow: 0 4px 6px rgba(0,0,0,0.05); text-align: center; cursor: pointer; transition: 0.2s; }
+        .stat-card:hover { transform: translateY(-3px); box-shadow: 0 6px 12px rgba(0,0,0,0.1); }
+        .stat-card .label { color: #64748b; font-size: 0.9rem; margin-bottom: 5px; }
         .stat-card .value { font-size: 2.2rem; font-weight: bold; color: #1e293b; }
-        
-        .chart-section { background: var(--card); padding: 25px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
-        .debug-panel { margin-top: 15px; padding: 12px; background: #fee2e2; border-left: 4px solid #ef4444; font-size: 0.85rem; display: none; }
+        .chart-section { background: var(--card); padding: 25px; border-radius: var(--radius); box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        #status { margin-top: 10px; color: #64748b; font-size: 0.9rem; font-weight: bold; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <div class="btn-group">
-        <button onclick="switchStation('B827EB63D1C8', this)" class="active">小芳堂</button>
-        <button onclick="switchStation('B827EBC2994D', this)">司令台</button>
-        <button onclick="switchStation('B827EB797224', this)">學務處</button>
-        <button onclick="switchStation('FT7_043', this)" style="background: #10b981; color: white;">測試站 (保證有資料)</button>
+    <div class="btn-group" id="station-btns">
+        <button onclick="switchStation('A', this)" class="active">小芳堂</button>
+        <button onclick="switchStation('B', this)">司令台</button>
+        <button onclick="switchStation('C', this)">學務處</button>
+        <button onclick="switchStation('TEST', this)" style="background: #10b981; color: white;">測試站</button>
     </div>
 
     <h1 id="site-name">🏫 正在監測：小芳堂</h1>
     
     <div class="stats-grid">
-        <div class="stat-card"><div>PM2.5</div><div class="value" id="pm25">--</div></div>
-        <div class="stat-card"><div>溫度</div><div class="value" id="temp">--</div></div>
-        <div class="stat-card"><div>濕度</div><div class="value" id="humi">--</div></div>
-        <div class="stat-card"><div>CO2</div><div class="value" id="co2">--</div></div>
+        <div class="stat-card" onclick="updateChart('PM2.5', 's_d0')">
+            <div class="label">PM2.5</div>
+            <div class="value" id="pm25">--</div>
+        </div>
+        <div class="stat-card" onclick="updateChart('溫度', 's_t0')">
+            <div class="label">溫度</div>
+            <div class="value" id="temp">--</div>
+        </div>
+        <div class="stat-card" onclick="updateChart('濕度', 's_h0')">
+            <div class="label">濕度</div>
+            <div class="value" id="humi">--</div>
+        </div>
+        <div class="stat-card" onclick="updateChart('CO2', 's_g8')">
+            <div class="label">CO2</div>
+            <div class="value" id="co2">--</div>
+        </div>
     </div>
 
     <div class="chart-section">
         <div style="height:350px;"><canvas id="mainChart"></canvas></div>
-        <div id="status" style="margin-top:10px; color:#64748b;">● 初始化中...</div>
-        <div id="debug-box" class="debug-panel"></div>
+        <div id="status">● 初始化中...</div>
     </div>
 </div>
 
 <script>
-// --- 基礎配置 ---
 const config = {
-    'A': { name: '小芳堂', id: 'B827EB63D1C8', type: 'lass' },
-    'B': { name: '司令台', id: 'B827EBC2994D', type: 'lass' },
-    'C': { name: '學務處', id: 'B827EB797224', type: 'lass' },
-    'E': { name: '植物觀測', type: 'gas' }
+    'A': { name: '小芳堂', id: 'B827EB63D1C8' },
+    'B': { name: '司令台', id: 'B827EBC2994D' },
+    'C': { name: '學務處', id: 'B827EB797224' },
+    'TEST': { name: '測試站', id: 'FT7_043' }
 };
 
-const GAS_URL = "https://script.google.com/macros/s/AKfycbzAaqP79kMX9Uq_QtIqnwMx8tp2v62k6H5lDOCtCZV2W73NwfWN9kFdMz0Myalx2vxRFw/exec"; 
+let currentKey = 'A';
+let mainChart;
+let refreshTimer;
 
-let currentSrc = 'A';
-let gauge, historyChart, dataInterval;
-
-// --- 初始化 ---
 window.onload = () => {
-    initGauge();
-    setupDropdown();
-    updateClock();
-    setInterval(updateClock, 1000);
-    switchPage('A'); 
+    initChart();
+    switchStation('A', document.querySelector('.active'));
 };
 
-function toggleSidebar() { document.getElementById('sidebar').classList.toggle('active'); }
-
-function setupDropdown() {
-    const btn = document.getElementById('source-selector');
-    const list = document.getElementById('source-list');
-    btn.onclick = (e) => { e.stopPropagation(); list.classList.toggle('show'); };
-    window.onclick = () => list.classList.remove('show');
-    document.querySelectorAll('#source-list li').forEach(li => {
-        li.onclick = () => {
-            const src = li.dataset.source;
-            btn.textContent = config[src].name + " ▼";
-            switchPage(src);
-        };
-    });
-}
-
-function switchPage(src) {
-    currentSrc = src;
-    if (dataInterval) clearInterval(dataInterval);
-    
-    if (config[src].type === 'gas') {
-        document.getElementById('lass-view').classList.add('hidden');
-        document.getElementById('plant-view').classList.remove('hidden');
-        fetchPlantData();
-        dataInterval = setInterval(fetchPlantData, 30000);
-    } else {
-        document.getElementById('lass-view').classList.remove('hidden');
-        document.getElementById('plant-view').classList.add('hidden');
-        fetchLassData();
-        dataInterval = setInterval(fetchLassData, 30000);
-    }
-}
-
-// --- 抓取即時數據 ---
-async function fetchLassData() {
-    const device = config[currentSrc];
-    try {
-        const res = await fetch(`https://pm25.lass-net.org/data/last.php?device_id=${device.id}`);
-        const json = await res.json();
-        
-        if (json?.feeds?.length > 0) {
-            const firstObject = json.feeds[0];
-            const dataKey = Object.keys(firstObject)[0];
-            const d = firstObject[dataKey];
-            
-            if (d) {
-                updateLassUI(d);
-                document.getElementById('data-status').innerHTML = `● ${device.name} 更新成功`;
-            }
-        }
-    } catch (e) { 
-        document.getElementById('data-status').innerHTML = `● 連線錯誤`; 
-    }
-}
-
-async function fetchPlantData() {
-    try {
-        const res = await fetch(GAS_URL, { redirect: "follow" });
-        const data = await res.json();
-        const last = data[data.length - 1]; 
-        document.getElementById('p-temp').textContent = last["溫度"] || last.temp || "--";
-        document.getElementById('p-humi').textContent = last["濕度"] || last.humi || "--";
-        document.getElementById('p-soil').textContent = last["土壤濕度"] || last.soil || "--";
-        document.getElementById('p-co2').textContent = last["CO2"] || last.co2 || "--";
-        document.getElementById('data-status').innerHTML = `● ESP32 連結成功`;
-    } catch (e) { 
-        document.getElementById('data-status').innerHTML = `● 植物系統連線失敗`; 
-    }
-}
-
-// --- 更新 UI ---
-function updateLassUI(d) {
-    const pm = d.s_d0 !== undefined ? Math.round(d.s_d0) : 0;
-    document.getElementById('pm25-val').textContent = pm;
-    const pmColor = pm < 30 ? '#3aa02d' : (pm < 70 ? '#f9ca24' : '#fa0000');
-    const notice = document.getElementById('aqi-notice');
-    notice.textContent = pm < 30 ? '良好' : (pm < 70 ? '普通' : '不良');
-    notice.style.backgroundColor = pmColor;
-    gauge.data.datasets[0].backgroundColor = [pmColor, '#e0e0e0'];
-    gauge.data.datasets[0].data = [pm, Math.max(0, 150 - pm)];
-    gauge.update();
-    document.getElementById('temp-display').textContent = d.s_t0 !== undefined ? `${d.s_t0.toFixed(1)} °C` : "-- °C";
-    document.getElementById('humi-display').textContent = d.s_h0 !== undefined ? `${Math.round(d.s_h0)} %` : "-- %";
-    document.getElementById('co2-display').textContent = d.s_g8 !== undefined ? `${Math.round(d.s_g8)} ppm` : "-- ppm";
-    document.getElementById('tvoc-display').textContent = d.s_gg !== undefined ? `${Math.round(d.s_gg)} ppb` : "-- ppb";
-}
-
-// --- 【核心修改】趨勢圖數據串接 ---
-async function openModal(label, key) {
-    document.getElementById('modal-title').innerText = `${label} 歷史趨勢`;
-    document.getElementById('history-modal').classList.add('active');
-    
-    const ctx = document.getElementById('historyChart').getContext('2d');
-    if (historyChart) historyChart.destroy();
-    
-    // 先畫出空的圖表外殼
-    historyChart = new Chart(ctx, {
+function initChart() {
+    const ctx = document.getElementById('mainChart').getContext('2d');
+    mainChart = new Chart(ctx, {
         type: 'line',
-        data: { labels: [], datasets: [{ label: label, data: [], borderColor: '#4a4545', backgroundColor: 'rgba(74, 69, 69, 0.1)', fill: true, tension: 0.4 }] },
-        options: { 
-            responsive: true, 
-            maintainAspectRatio: false,
-            plugins: { title: { display: true, text: '數據載入中...' } }
-        }
+        data: { labels: [], datasets: [{ label: 'PM2.5 趨勢', data: [], borderColor: '#2563eb', backgroundColor: 'rgba(37, 99, 235, 0.1)', fill: true, tension: 0.4 }] },
+        options: { responsive: true, maintainAspectRatio: false }
     });
+}
 
+async function switchStation(key, btn) {
+    currentKey = key;
+    // 切換按鈕樣式
+    document.querySelectorAll('#station-btns button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('site-name').innerText = `🏫 正在監測：${config[key].name}`;
+    
+    // 立即更新數據
+    updateAll();
+    
+    // 設定定時器
+    if (refreshTimer) clearInterval(refreshTimer);
+    refreshTimer = setInterval(updateAll, 30000);
+}
+
+async function updateAll() {
+    const deviceId = config[currentKey].id;
+    
+    // 1. 更新數值
     try {
-        const device = config[currentSrc];
-        const res = await fetch(`https://pm25.lass-net.org/data/history.php?device_id=${device.id}`);
+        const res = await fetch(`https://pm25.lass-net.org/data/last.php?device_id=${deviceId}`);
         const json = await res.json();
-        
-        const firstObj = json?.feeds?.[0];
-        const hList = firstObj[Object.keys(firstObj)[0]] || [];
+        const raw = json.feeds[0];
+        const d = raw[Object.keys(raw)[0]]; // 模糊抓取第一個物件
 
-        if (Array.isArray(hList) && hList.length > 0) {
-            const recent = hList.slice(-40); // 抓最近 40 筆
-            const labels = recent.map(f => {
+        document.getElementById('pm25').innerText = Math.round(d.s_d0 ?? 0);
+        document.getElementById('temp').innerText = (d.s_t0 ?? 0).toFixed(1) + "°";
+        document.getElementById('humi').innerText = Math.round(d.s_h0 ?? 0) + "%";
+        document.getElementById('co2').innerText = Math.round(d.s_g8 ?? 0);
+        
+        document.getElementById('status').innerText = `● 數據更新成功 (${new Date().toLocaleTimeString()})`;
+    } catch (e) {
+        document.getElementById('status').innerText = `● 設備可能離線`;
+    }
+
+    // 2. 更新圖表 (預設顯示 PM2.5)
+    updateChart('PM2.5', 's_d0');
+}
+
+async function updateChart(label, dataField) {
+    const deviceId = config[currentKey].id;
+    try {
+        const res = await fetch(`https://pm25.lass-net.org/data/history.php?device_id=${deviceId}`);
+        const json = await res.json();
+        const raw = json.feeds[0];
+        const hList = raw[Object.keys(raw)[0]];
+
+        if (Array.isArray(hList)) {
+            const recent = hList.slice(-30);
+            mainChart.data.labels = recent.map(f => {
                 const t = new Date(f.timestamp || f.time);
                 return `${t.getHours()}:${String(t.getMinutes()).padStart(2, '0')}`;
             });
-            const values = recent.map(f => f[key] ?? 0);
-
-            historyChart.data.labels = labels;
-            historyChart.data.datasets[0].data = values;
-            historyChart.options.plugins.title.text = '最近數據紀錄';
-            historyChart.update();
-        } else {
-            historyChart.options.plugins.title.text = '該站點暫無歷史數據';
-            historyChart.update();
+            mainChart.data.datasets[0].label = `${label} 趨勢`;
+            mainChart.data.datasets[0].data = recent.map(f => f[dataField] ?? 0);
+            mainChart.update();
         }
     } catch (e) {
-        console.error("圖表載入失敗", e);
+        console.error("圖表更新失敗");
     }
-}
-
-function navToModal(label, key) { 
-    if (window.innerWidth <= 768) toggleSidebar(); 
-    openModal(label, key); 
-}
-
-function closeModal() { document.getElementById('history-modal').classList.remove('active'); }
-
-function initGauge() {
-    const ctx = document.getElementById('pm25Gauge').getContext('2d');
-    gauge = new Chart(ctx, {
-        type: 'doughnut',
-        data: { datasets: [{ data: [0, 150], backgroundColor: ['#3aa02d', '#e0e0e0'], circumference: 270, rotation: 225, cutout: '80%', borderRadius: 10 }] },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
-    });
-}
-
-function updateClock() {
-    const now = new Date();
-    const h = now.getHours(), m = now.getMinutes(), s = now.getSeconds();
-    document.getElementById('hr').style.transform = `translateX(-50%) rotate(${(h % 12) * 30 + m * 0.5}deg)`;
-    document.getElementById('mn').style.transform = `translateX(-50%) rotate(${m * 6}deg)`;
-    document.getElementById('sc').style.transform = `translateX(-50%) rotate(${s * 6}deg)`;
-    document.getElementById('time-display').textContent = now.toLocaleTimeString('zh-TW', {hour12: false});
-    document.getElementById('date-display').textContent = now.toLocaleDateString('zh-TW', { weekday: 'short', month: 'numeric', day: 'numeric' });
 }
 </script>
 </body>
