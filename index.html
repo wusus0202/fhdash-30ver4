@@ -51,71 +51,188 @@
 </div>
 
 <script>
-    let currentID = 'B827EB63D1C8';
-    let mainChart;
-    let updateTimer;
+// --- 基礎配置 ---
+const config = {
+    'A': { name: '小芳堂', id: 'B827EB63D1C8', type: 'lass' },
+    'B': { name: '司令台', id: 'B827EBC2994D', type: 'lass' },
+    'C': { name: '學務處', id: 'B827EB797224', type: 'lass' },
+    'E': { name: '植物觀測', type: 'gas' }
+};
 
-    function switchStation(id, btn) {
-        currentID = id;
-        document.querySelectorAll('button').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        document.getElementById('site-name').innerText = `🏫 正在監測：${btn.innerText}`;
-        updateData();
+const GAS_URL = "https://script.google.com/macros/s/AKfycbzAaqP79kMX9Uq_QtIqnwMx8tp2v62k6H5lDOCtCZV2W73NwfWN9kFdMz0Myalx2vxRFw/exec"; 
+
+let currentSrc = 'A';
+let gauge, historyChart, dataInterval;
+
+// --- 初始化 ---
+window.onload = () => {
+    initGauge();
+    setupDropdown();
+    updateClock();
+    setInterval(updateClock, 1000);
+    switchPage('A'); 
+};
+
+function toggleSidebar() { document.getElementById('sidebar').classList.toggle('active'); }
+
+function setupDropdown() {
+    const btn = document.getElementById('source-selector');
+    const list = document.getElementById('source-list');
+    btn.onclick = (e) => { e.stopPropagation(); list.classList.toggle('show'); };
+    window.onclick = () => list.classList.remove('show');
+    document.querySelectorAll('#source-list li').forEach(li => {
+        li.onclick = () => {
+            const src = li.dataset.source;
+            btn.textContent = config[src].name + " ▼";
+            switchPage(src);
+        };
+    });
+}
+
+function switchPage(src) {
+    currentSrc = src;
+    if (dataInterval) clearInterval(dataInterval);
+    
+    if (config[src].type === 'gas') {
+        document.getElementById('lass-view').classList.add('hidden');
+        document.getElementById('plant-view').classList.remove('hidden');
+        fetchPlantData();
+        dataInterval = setInterval(fetchPlantData, 30000);
+    } else {
+        document.getElementById('lass-view').classList.remove('hidden');
+        document.getElementById('plant-view').classList.add('hidden');
+        fetchLassData();
+        dataInterval = setInterval(fetchLassData, 30000);
     }
+}
 
-    function initChart() {
-        const ctx = document.getElementById('mainChart').getContext('2d');
-        mainChart = new Chart(ctx, {
-            type: 'line',
-            data: { labels: [], datasets: [{ label: '數據趨勢', data: [], borderColor: '#2563eb', backgroundColor: 'rgba(37, 99, 235, 0.1)', fill: true, tension: 0.4 }] },
-            options: { responsive: true, maintainAspectRatio: false }
-        });
-    }
-
-    async function updateData() {
-        try {
-            const res = await fetch(`https://pm25.lass-net.org/data/last.php?device_id=${currentID}`);
-            const json = await res.json();
-            const raw = json?.feeds?.[0];
-            const d = raw?.[currentID] || raw;
-
-            const debugBox = document.getElementById('debug-box');
-            if (!d || !Object.keys(d).includes('s_d0')) {
-                debugBox.style.display = 'block';
-                debugBox.innerHTML = `⚠️ 設備可能離線或感測器故障。<br>收到的原始欄位：${Object.keys(d || {}).join(', ')}`;
-                resetValues();
-            } else {
-                debugBox.style.display = 'none';
-                document.getElementById('pm25').innerText = Math.round(d.s_d0 ?? d.pm2_5 ?? 0);
-                document.getElementById('temp').innerText = (d.s_t0 ?? d.temperature ?? 0).toFixed(1);
-                document.getElementById('humi').innerText = Math.round(d.s_h0 ?? d.humidity ?? 0);
-                document.getElementById('co2').innerText = Math.round(d.s_g8 ?? d.s_gg ?? 0);
-                document.getElementById('status').innerText = "● 最後更新: " + new Date().toLocaleTimeString();
+// --- 抓取即時數據 ---
+async function fetchLassData() {
+    const device = config[currentSrc];
+    try {
+        const res = await fetch(`https://pm25.lass-net.org/data/last.php?device_id=${device.id}`);
+        const json = await res.json();
+        
+        if (json?.feeds?.length > 0) {
+            const firstObject = json.feeds[0];
+            const dataKey = Object.keys(firstObject)[0];
+            const d = firstObject[dataKey];
+            
+            if (d) {
+                updateLassUI(d);
+                document.getElementById('data-status').innerHTML = `● ${device.name} 更新成功`;
             }
-
-            // 更新歷史圖表
-            const hRes = await fetch(`https://pm25.lass-net.org/data/history.php?device_id=${currentID}`);
-            const hJson = await hRes.json();
-            const hList = hJson?.feeds?.[0]?.[currentID] || hJson?.feeds?.[0] || [];
-            if (Array.isArray(hList) && hList.length > 0) {
-                const recent = hList.slice(-30);
-                mainChart.data.labels = recent.map(f => {
-                    const t = new Date(f.timestamp || f.time);
-                    return `${t.getHours()}:${String(t.getMinutes()).padStart(2, '0')}`;
-                });
-                mainChart.data.datasets[0].data = recent.map(f => f.s_d0 ?? f.pm2_5 ?? 0);
-                mainChart.update();
-            }
-        } catch (e) {
-            console.error(e);
         }
+    } catch (e) { 
+        document.getElementById('data-status').innerHTML = `● 連線錯誤`; 
     }
+}
 
-    function resetValues() {
-        ['pm25','temp','humi','co2'].forEach(id => document.getElementById(id).innerText = '--');
+async function fetchPlantData() {
+    try {
+        const res = await fetch(GAS_URL, { redirect: "follow" });
+        const data = await res.json();
+        const last = data[data.length - 1]; 
+        document.getElementById('p-temp').textContent = last["溫度"] || last.temp || "--";
+        document.getElementById('p-humi').textContent = last["濕度"] || last.humi || "--";
+        document.getElementById('p-soil').textContent = last["土壤濕度"] || last.soil || "--";
+        document.getElementById('p-co2').textContent = last["CO2"] || last.co2 || "--";
+        document.getElementById('data-status').innerHTML = `● ESP32 連結成功`;
+    } catch (e) { 
+        document.getElementById('data-status').innerHTML = `● 植物系統連線失敗`; 
     }
+}
 
-    window.onload = () => { initChart(); updateData(); updateTimer = setInterval(updateData, 30000); };
+// --- 更新 UI ---
+function updateLassUI(d) {
+    const pm = d.s_d0 !== undefined ? Math.round(d.s_d0) : 0;
+    document.getElementById('pm25-val').textContent = pm;
+    const pmColor = pm < 30 ? '#3aa02d' : (pm < 70 ? '#f9ca24' : '#fa0000');
+    const notice = document.getElementById('aqi-notice');
+    notice.textContent = pm < 30 ? '良好' : (pm < 70 ? '普通' : '不良');
+    notice.style.backgroundColor = pmColor;
+    gauge.data.datasets[0].backgroundColor = [pmColor, '#e0e0e0'];
+    gauge.data.datasets[0].data = [pm, Math.max(0, 150 - pm)];
+    gauge.update();
+    document.getElementById('temp-display').textContent = d.s_t0 !== undefined ? `${d.s_t0.toFixed(1)} °C` : "-- °C";
+    document.getElementById('humi-display').textContent = d.s_h0 !== undefined ? `${Math.round(d.s_h0)} %` : "-- %";
+    document.getElementById('co2-display').textContent = d.s_g8 !== undefined ? `${Math.round(d.s_g8)} ppm` : "-- ppm";
+    document.getElementById('tvoc-display').textContent = d.s_gg !== undefined ? `${Math.round(d.s_gg)} ppb` : "-- ppb";
+}
+
+// --- 【核心修改】趨勢圖數據串接 ---
+async function openModal(label, key) {
+    document.getElementById('modal-title').innerText = `${label} 歷史趨勢`;
+    document.getElementById('history-modal').classList.add('active');
+    
+    const ctx = document.getElementById('historyChart').getContext('2d');
+    if (historyChart) historyChart.destroy();
+    
+    // 先畫出空的圖表外殼
+    historyChart = new Chart(ctx, {
+        type: 'line',
+        data: { labels: [], datasets: [{ label: label, data: [], borderColor: '#4a4545', backgroundColor: 'rgba(74, 69, 69, 0.1)', fill: true, tension: 0.4 }] },
+        options: { 
+            responsive: true, 
+            maintainAspectRatio: false,
+            plugins: { title: { display: true, text: '數據載入中...' } }
+        }
+    });
+
+    try {
+        const device = config[currentSrc];
+        const res = await fetch(`https://pm25.lass-net.org/data/history.php?device_id=${device.id}`);
+        const json = await res.json();
+        
+        const firstObj = json?.feeds?.[0];
+        const hList = firstObj[Object.keys(firstObj)[0]] || [];
+
+        if (Array.isArray(hList) && hList.length > 0) {
+            const recent = hList.slice(-40); // 抓最近 40 筆
+            const labels = recent.map(f => {
+                const t = new Date(f.timestamp || f.time);
+                return `${t.getHours()}:${String(t.getMinutes()).padStart(2, '0')}`;
+            });
+            const values = recent.map(f => f[key] ?? 0);
+
+            historyChart.data.labels = labels;
+            historyChart.data.datasets[0].data = values;
+            historyChart.options.plugins.title.text = '最近數據紀錄';
+            historyChart.update();
+        } else {
+            historyChart.options.plugins.title.text = '該站點暫無歷史數據';
+            historyChart.update();
+        }
+    } catch (e) {
+        console.error("圖表載入失敗", e);
+    }
+}
+
+function navToModal(label, key) { 
+    if (window.innerWidth <= 768) toggleSidebar(); 
+    openModal(label, key); 
+}
+
+function closeModal() { document.getElementById('history-modal').classList.remove('active'); }
+
+function initGauge() {
+    const ctx = document.getElementById('pm25Gauge').getContext('2d');
+    gauge = new Chart(ctx, {
+        type: 'doughnut',
+        data: { datasets: [{ data: [0, 150], backgroundColor: ['#3aa02d', '#e0e0e0'], circumference: 270, rotation: 225, cutout: '80%', borderRadius: 10 }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+    });
+}
+
+function updateClock() {
+    const now = new Date();
+    const h = now.getHours(), m = now.getMinutes(), s = now.getSeconds();
+    document.getElementById('hr').style.transform = `translateX(-50%) rotate(${(h % 12) * 30 + m * 0.5}deg)`;
+    document.getElementById('mn').style.transform = `translateX(-50%) rotate(${m * 6}deg)`;
+    document.getElementById('sc').style.transform = `translateX(-50%) rotate(${s * 6}deg)`;
+    document.getElementById('time-display').textContent = now.toLocaleTimeString('zh-TW', {hour12: false});
+    document.getElementById('date-display').textContent = now.toLocaleDateString('zh-TW', { weekday: 'short', month: 'numeric', day: 'numeric' });
+}
 </script>
 </body>
 </html>
