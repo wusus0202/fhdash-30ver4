@@ -3,23 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>芳和監測站 - 數據修正版</title>
-    <link rel="icon" href="data:;base64,iVBORw0KGgo=">
+    <title>芳和監測站 - 最終修正版</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        :root { --bg: #f8f9fa; --card: #ffffff; --primary: #2563eb; --radius: 15px; }
+        :root { --bg: #f8f9fa; --card: #ffffff; --primary: #2563eb; }
         body { font-family: -apple-system, sans-serif; background: var(--bg); padding: 20px; }
         .container { max-width: 900px; margin: 0 auto; }
         .btn-group { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
-        button { padding: 10px 20px; border: none; border-radius: 8px; background: #ddd; cursor: pointer; font-weight: bold; }
-        button.active { background: var(--primary); color: white; }
+        button { padding: 10px 15px; border: none; border-radius: 8px; background: #ddd; cursor: pointer; }
+        button.active { background: var(--primary); color: white; font-weight: bold; }
         .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 20px; }
-        .stat-card { background: var(--card); padding: 25px; border-radius: var(--radius); box-shadow: 0 4px 6px rgba(0,0,0,0.05); text-align: center; cursor: pointer; transition: 0.2s; }
-        .stat-card:hover { transform: translateY(-3px); box-shadow: 0 6px 12px rgba(0,0,0,0.1); }
-        .stat-card .label { color: #64748b; font-size: 0.9rem; margin-bottom: 5px; }
+        .stat-card { background: var(--card); padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); text-align: center; cursor: pointer; }
         .stat-card .value { font-size: 2.2rem; font-weight: bold; color: #1e293b; }
-        .chart-section { background: var(--card); padding: 25px; border-radius: var(--radius); box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
-        #status { margin-top: 10px; color: #64748b; font-size: 0.9rem; font-weight: bold; }
+        .chart-section { background: var(--card); padding: 25px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        #status { margin-top: 10px; color: #64748b; font-size: 0.85rem; }
     </style>
 </head>
 <body>
@@ -36,19 +33,19 @@
     
     <div class="stats-grid">
         <div class="stat-card" onclick="updateChart('PM2.5', 's_d0')">
-            <div class="label">PM2.5</div>
+            <div>PM2.5</div>
             <div class="value" id="pm25">--</div>
         </div>
         <div class="stat-card" onclick="updateChart('溫度', 's_t0')">
-            <div class="label">溫度</div>
+            <div>溫度</div>
             <div class="value" id="temp">--</div>
         </div>
         <div class="stat-card" onclick="updateChart('濕度', 's_h0')">
-            <div class="label">濕度</div>
+            <div>濕度</div>
             <div class="value" id="humi">--</div>
         </div>
         <div class="stat-card" onclick="updateChart('CO2', 's_g8')">
-            <div class="label">CO2</div>
+            <div>CO2</div>
             <div class="value" id="co2">--</div>
         </div>
     </div>
@@ -60,6 +57,7 @@
 </div>
 
 <script>
+// 1. 基礎配置
 const config = {
     'A': { name: '小芳堂', id: 'B827EB63D1C8' },
     'B': { name: '司令台', id: 'B827EBC2994D' },
@@ -71,35 +69,64 @@ let currentKey = 'A';
 let mainChart;
 let refreshTimer;
 
+// 2. 視窗載入初始化
 window.onload = () => {
-    initChart();
-    switchStation('A', document.querySelector('.active'));
-};
-
-function initChart() {
     const ctx = document.getElementById('mainChart').getContext('2d');
     mainChart = new Chart(ctx, {
         type: 'line',
-        data: { labels: [], datasets: [{ label: 'PM2.5 趨勢', data: [], borderColor: '#2563eb', backgroundColor: 'rgba(37, 99, 235, 0.1)', fill: true, tension: 0.4 }] },
+        data: { labels: [], datasets: [{ label: '數據趨勢', data: [], borderColor: '#2563eb', backgroundColor: 'rgba(37, 99, 235, 0.1)', fill: true, tension: 0.4 }] },
         options: { responsive: true, maintainAspectRatio: false }
     });
-}
+    
+    // 預設執行第一個站點
+    switchStation('A', document.querySelector('.active'));
+};
 
+// 3. 切換站點函數
 async function switchStation(key, btn) {
     currentKey = key;
-    // 切換按鈕樣式
+    // 更新 UI 樣式
     document.querySelectorAll('#station-btns button').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     document.getElementById('site-name').innerText = `🏫 正在監測：${config[key].name}`;
     
-    // 立即更新數據
-    updateAll();
+    // 執行數據更新
+    await updateAll();
     
-    // 設定定時器
+    // 設定自動刷新
     if (refreshTimer) clearInterval(refreshTimer);
-    refreshTimer = setInterval(updateAll, 30000);
+    refreshTimer = setInterval(updateAll, 60000); // 每一分鐘刷新一次
 }
 
+// 4. 更新所有即時數據
+async function updateAll() {
+    const deviceId = config[currentKey].id;
+    const statusEl = document.getElementById('status');
+    
+    try {
+        const res = await fetch(`https://pm25.lass-net.org/data/last.php?device_id=${deviceId}`);
+        const json = await res.json();
+        
+        if (json && json.feeds && json.feeds.length > 0) {
+            const raw = json.feeds[0];
+            const d = raw[Object.keys(raw)[0]]; 
+
+            document.getElementById('pm25').innerText = Math.round(d.s_d0 || 0);
+            document.getElementById('temp').innerText = (d.s_t0 || 0).toFixed(1) + "°";
+            document.getElementById('humi').innerText = Math.round(d.s_h0 || 0) + "%";
+            document.getElementById('co2').innerText = Math.round(d.s_g8 || 0);
+            
+            statusEl.innerText = `● 即時數據更新於 ${new Date().toLocaleTimeString()}`;
+            
+            // 同步更新圖表 (預設顯示 PM2.5)
+            await updateChart('PM2.5', 's_d0');
+        }
+    } catch (e) {
+        statusEl.innerText = `● 無法連線至設備 ${deviceId}`;
+    }
+}
+
+// 5. 更新歷史圖表 (近 12 小時邏輯)
 async function updateChart(label, dataField) {
     const deviceId = config[currentKey].id;
     const statusEl = document.getElementById('status');
@@ -109,26 +136,23 @@ async function updateChart(label, dataField) {
         const json = await res.json();
         
         let displayData = [];
-        let timeNote = "";
+        let timeNote = "(近 12 小時)";
 
-        // 檢查是否有歷史資料
-        if (json && json.feeds && json.feeds.length > 0) {
+        if (json?.feeds?.length > 0) {
             const firstFeed = json.feeds[0];
-            const deviceKey = Object.keys(firstFeed)[0];
-            const hList = firstFeed[deviceKey];
+            const hList = firstFeed[Object.keys(firstFeed)[0]];
 
             if (Array.isArray(hList) && hList.length > 0) {
                 const now = new Date().getTime();
                 const twelveHoursAgo = now - (12 * 60 * 60 * 1000);
 
-                // 1. 嘗試過濾 12 小時內
+                // 篩選 12 小時內
                 displayData = hList.filter(f => {
                     const ts = f.timestamp || f.time;
                     return f[dataField] !== undefined && new Date(ts).getTime() >= twelveHoursAgo;
                 });
-                timeNote = "(近 12 小時)";
 
-                // 2. 12 小時沒資料，抓最後 20 筆
+                // 備案：如果 12 小時沒資料，抓最後 20 筆
                 if (displayData.length === 0) {
                     displayData = hList.filter(f => f[dataField] !== undefined).slice(-20);
                     timeNote = "(歷史存檔)";
@@ -136,43 +160,26 @@ async function updateChart(label, dataField) {
             }
         }
 
-        // 3. 【保險機制】如果歷史庫完全沒資料，抓取目前畫面上顯示的那個即時點
+        // 如果連歷史存檔都沒有，抓當前的即時點
         if (displayData.length === 0) {
-            const lastVal = document.getElementById(dataField === 's_d0' ? 'pm25' : 
-                                                 dataField === 's_t0' ? 'temp' : 
-                                                 dataField === 's_h0' ? 'humi' : 'co2').innerText;
-            
-            if (lastVal !== "--" && lastVal !== "N/A") {
-                displayData = [{
-                    timestamp: new Date().toISOString(),
-                    [dataField]: parseFloat(lastVal)
-                }];
-                timeNote = "(僅即時數據)";
+            const currentVal = document.getElementById('pm25').innerText; // 以 PM2.5 為例
+            if (currentVal !== "--") {
+                displayData = [{ timestamp: new Date().toISOString(), [dataField]: parseFloat(currentVal) }];
+                timeNote = "(僅即時資料)";
             }
         }
 
-        // 繪製圖表
-        if (displayData.length > 0) {
-            mainChart.data.labels = displayData.map(f => {
-                const t = new Date(f.timestamp || f.time);
-                return `${t.getHours()}:${String(t.getMinutes()).padStart(2, '0')}`;
-            });
-            
-            mainChart.data.datasets[0].label = `${config[currentKey].name} - ${label} ${timeNote}`;
-            mainChart.data.datasets[0].data = displayData.map(f => parseFloat(f[dataField]));
-            mainChart.update();
-            statusEl.innerText = `● ${timeNote} 已載入 ${displayData.length} 筆`;
-        } else {
-            // 完全沒數據時的顯示
-            mainChart.data.labels = [];
-            mainChart.data.datasets[0].data = [];
-            mainChart.update();
-            statusEl.innerText = `● 該站點目前完全無數據紀錄`;
-        }
+        // 繪圖
+        mainChart.data.labels = displayData.map(f => {
+            const t = new Date(f.timestamp || f.time);
+            return `${t.getHours()}:${String(t.getMinutes()).padStart(2, '0')}`;
+        });
+        mainChart.data.datasets[0].label = `${config[currentKey].name} - ${label} ${timeNote}`;
+        mainChart.data.datasets[0].data = displayData.map(f => parseFloat(f[dataField]));
+        mainChart.update();
 
     } catch (e) {
-        console.error("更新失敗:", e);
-        statusEl.innerText = `● 資料庫連線異常`;
+        console.error("圖表更新出錯", e);
     }
 }
 </script>
