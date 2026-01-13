@@ -137,36 +137,40 @@ async function updateChart(label, dataField) {
         const hList = raw[firstKey];
 
         if (Array.isArray(hList) && hList.length > 0) {
-            // 計算 12 小時前的時間點
             const now = new Date().getTime();
             const twelveHoursAgo = now - (12 * 60 * 60 * 1000);
 
-            // 過濾：1. 必須有該欄位數據 2. 時間必須在 12 小時內
-            const filteredData = hList.filter(f => {
+            // 1. 嘗試抓取 12 小時內的數據
+            let displayData = hList.filter(f => {
                 const dataTime = new Date(f.timestamp || f.time).getTime();
                 return f[dataField] !== undefined && dataTime >= twelveHoursAgo;
             });
 
-            if (filteredData.length === 0) {
-                console.warn("最近 12 小時內無數據");
-                mainChart.data.labels = [];
-                mainChart.data.datasets[0].data = [];
-                mainChart.update();
+            let timeLabel = "(近 12 小時)";
+
+            // 2. 如果 12 小時內沒數據，回溯抓最後 20 筆存檔
+            if (displayData.length === 0) {
+                displayData = hList.filter(f => f[dataField] !== undefined).slice(-20);
+                timeLabel = "(歷史存檔)";
+            }
+
+            if (displayData.length === 0) {
+                console.warn("該設備完全無歷史紀錄");
                 return;
             }
 
             // 更新圖表
-            mainChart.data.labels = filteredData.map(f => {
+            mainChart.data.labels = displayData.map(f => {
                 const t = new Date(f.timestamp || f.time);
-                return `${t.getHours()}:${String(t.getMinutes()).padStart(2, '0')}`;
+                return `${t.getMonth()+1}/${t.getDate()} ${t.getHours()}:${String(t.getMinutes()).padStart(2, '0')}`;
             });
             
-            mainChart.data.datasets[0].label = `${config[currentKey].name} - ${label} (近12小時)`;
-            mainChart.data.datasets[0].data = filteredData.map(f => f[dataField]);
+            mainChart.data.datasets[0].label = `${config[currentKey].name} - ${label} ${timeLabel}`;
+            mainChart.data.datasets[0].data = displayData.map(f => f[dataField]);
             mainChart.update();
         }
     } catch (e) {
-        console.error("圖表過濾發生錯誤:", e);
+        console.error("圖表解析錯誤:", e);
     }
 }
 </script>
