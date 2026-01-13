@@ -120,7 +120,7 @@
 async function updateData() {
         try {
             // 1. 抓取最新即時數據
-            const lastRes = await fetch(`https://pm25.lass-net.org/data/last.php?device_id=${DEVICE_ID}`);
+            const lastRes = await fetch(`https://pm25.lass-net.org/data/last.php?device_id=${B827EB63D1C8}`);
             const lastJson = await lastRes.json();
             
             // 安全檢查：確保 lastJson.feeds 是一個陣列且不為空
