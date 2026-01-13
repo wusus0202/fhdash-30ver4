@@ -100,30 +100,6 @@ async function switchStation(key, btn) {
     refreshTimer = setInterval(updateAll, 30000);
 }
 
-async function updateAll() {
-    const deviceId = config[currentKey].id;
-    
-    // 1. 更新數值
-    try {
-        const res = await fetch(`https://pm25.lass-net.org/data/last.php?device_id=${deviceId}`);
-        const json = await res.json();
-        const raw = json.feeds[0];
-        const d = raw[Object.keys(raw)[0]]; // 模糊抓取第一個物件
-
-        document.getElementById('pm25').innerText = Math.round(d.s_d0 ?? 0);
-        document.getElementById('temp').innerText = (d.s_t0 ?? 0).toFixed(1) + "°";
-        document.getElementById('humi').innerText = Math.round(d.s_h0 ?? 0) + "%";
-        document.getElementById('co2').innerText = Math.round(d.s_g8 ?? 0);
-        
-        document.getElementById('status').innerText = `● 數據更新成功 (${new Date().toLocaleTimeString()})`;
-    } catch (e) {
-        document.getElementById('status').innerText = `● 設備可能離線`;
-    }
-
-    // 2. 更新圖表 (預設顯示 PM2.5)
-    updateChart('PM2.5', 's_d0');
-}
-
 async function updateChart(label, dataField) {
     const deviceId = config[currentKey].id;
     const statusEl = document.getElementById('status');
@@ -132,62 +108,71 @@ async function updateChart(label, dataField) {
         const res = await fetch(`https://pm25.lass-net.org/data/history.php?device_id=${deviceId}`);
         const json = await res.json();
         
-        // 1. 依照官方原始碼邏輯抓取 feeds
-        if (!json || !json.feeds || json.feeds.length === 0) {
-            statusEl.innerText = `● ${config[currentKey].name} 伺服器無回傳歷史資料`;
-            return;
+        let displayData = [];
+        let timeNote = "";
+
+        // 檢查是否有歷史資料
+        if (json && json.feeds && json.feeds.length > 0) {
+            const firstFeed = json.feeds[0];
+            const deviceKey = Object.keys(firstFeed)[0];
+            const hList = firstFeed[deviceKey];
+
+            if (Array.isArray(hList) && hList.length > 0) {
+                const now = new Date().getTime();
+                const twelveHoursAgo = now - (12 * 60 * 60 * 1000);
+
+                // 1. 嘗試過濾 12 小時內
+                displayData = hList.filter(f => {
+                    const ts = f.timestamp || f.time;
+                    return f[dataField] !== undefined && new Date(ts).getTime() >= twelveHoursAgo;
+                });
+                timeNote = "(近 12 小時)";
+
+                // 2. 12 小時沒資料，抓最後 20 筆
+                if (displayData.length === 0) {
+                    displayData = hList.filter(f => f[dataField] !== undefined).slice(-20);
+                    timeNote = "(歷史存檔)";
+                }
+            }
         }
 
-        const firstFeed = json.feeds[0];
-        const deviceKey = Object.keys(firstFeed)[0];
-        const hList = firstFeed[deviceKey];
-
-        if (Array.isArray(hList) && hList.length > 0) {
-            const now = new Date();
-            const twelveHoursAgo = now.getTime() - (12 * 60 * 60 * 1000);
-
-            // 2. 依照官方邏輯過濾數據 (只拿有該欄位且 12 小時內的)
-            let displayData = hList.filter(f => {
-                const ts = f.timestamp || f.time;
-                if (!ts) return false;
-                const dataTime = new Date(ts).getTime();
-                // 檢查數據是否存在且時間在 12 小時內
-                return f[dataField] !== undefined && dataTime >= twelveHoursAgo;
-            });
-
-            let timeNote = "(近 12 小時)";
-
-            // 3. 智慧墊底：如果 12 小時內真的沒資料，就顯示最後 20 筆
-            if (displayData.length === 0) {
-                displayData = hList.filter(f => f[dataField] !== undefined).slice(-20);
-                timeNote = "(最近 20 筆存檔)";
+        // 3. 【保險機制】如果歷史庫完全沒資料，抓取目前畫面上顯示的那個即時點
+        if (displayData.length === 0) {
+            const lastVal = document.getElementById(dataField === 's_d0' ? 'pm25' : 
+                                                 dataField === 's_t0' ? 'temp' : 
+                                                 dataField === 's_h0' ? 'humi' : 'co2').innerText;
+            
+            if (lastVal !== "--" && lastVal !== "N/A") {
+                displayData = [{
+                    timestamp: new Date().toISOString(),
+                    [dataField]: parseFloat(lastVal)
+                }];
+                timeNote = "(僅即時數據)";
             }
+        }
 
-            // 4. 繪製圖表
+        // 繪製圖表
+        if (displayData.length > 0) {
             mainChart.data.labels = displayData.map(f => {
                 const t = new Date(f.timestamp || f.time);
-                // 格式化：13:05
                 return `${t.getHours()}:${String(t.getMinutes()).padStart(2, '0')}`;
             });
             
             mainChart.data.datasets[0].label = `${config[currentKey].name} - ${label} ${timeNote}`;
             mainChart.data.datasets[0].data = displayData.map(f => parseFloat(f[dataField]));
-            
-            // 根據數據動態調整顏色
-            if (label === 'PM2.5') {
-                mainChart.data.datasets[0].borderColor = '#2563eb';
-                mainChart.data.datasets[0].backgroundColor = 'rgba(37, 99, 235, 0.1)';
-            } else if (label === '溫度') {
-                mainChart.data.datasets[0].borderColor = '#ef4444';
-                mainChart.data.datasets[0].backgroundColor = 'rgba(239, 68, 68, 0.1)';
-            }
-
             mainChart.update();
-            statusEl.innerText = `● 已載入 ${displayData.length} 筆數據 ${timeNote}`;
+            statusEl.innerText = `● ${timeNote} 已載入 ${displayData.length} 筆`;
+        } else {
+            // 完全沒數據時的顯示
+            mainChart.data.labels = [];
+            mainChart.data.datasets[0].data = [];
+            mainChart.update();
+            statusEl.innerText = `● 該站點目前完全無數據紀錄`;
         }
+
     } catch (e) {
-        console.error("解析失敗:", e);
-        statusEl.innerText = `● 圖表解析失敗，請稍後再試`;
+        console.error("更新失敗:", e);
+        statusEl.innerText = `● 資料庫連線異常`;
     }
 }
 </script>
