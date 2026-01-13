@@ -130,36 +130,43 @@ async function updateChart(label, dataField) {
         const res = await fetch(`https://pm25.lass-net.org/data/history.php?device_id=${deviceId}`);
         const json = await res.json();
         
-        // 檢查 feeds 是否存在且有內容
-        if (!json || !json.feeds || json.feeds.length === 0) {
-            console.warn(`${label} 歷史數據為空`);
-            return;
-        }
+        if (!json || !json.feeds || json.feeds.length === 0) return;
 
         const raw = json.feeds[0];
-        // 獲取第一個物件的內容 (這通常是包含歷史陣列的地方)
         const firstKey = Object.keys(raw)[0];
         const hList = raw[firstKey];
 
         if (Array.isArray(hList) && hList.length > 0) {
-            // 過濾掉沒有該欄位的無效數據
-            const validData = hList.filter(f => f[dataField] !== undefined).slice(-30);
-            
-            mainChart.data.labels = validData.map(f => {
+            // 計算 12 小時前的時間點
+            const now = new Date().getTime();
+            const twelveHoursAgo = now - (12 * 60 * 60 * 1000);
+
+            // 過濾：1. 必須有該欄位數據 2. 時間必須在 12 小時內
+            const filteredData = hList.filter(f => {
+                const dataTime = new Date(f.timestamp || f.time).getTime();
+                return f[dataField] !== undefined && dataTime >= twelveHoursAgo;
+            });
+
+            if (filteredData.length === 0) {
+                console.warn("最近 12 小時內無數據");
+                mainChart.data.labels = [];
+                mainChart.data.datasets[0].data = [];
+                mainChart.update();
+                return;
+            }
+
+            // 更新圖表
+            mainChart.data.labels = filteredData.map(f => {
                 const t = new Date(f.timestamp || f.time);
                 return `${t.getHours()}:${String(t.getMinutes()).padStart(2, '0')}`;
             });
             
-            mainChart.data.datasets[0].label = `${config[currentKey].name} - ${label} 趨勢`;
-            mainChart.data.datasets[0].data = validData.map(f => f[dataField]);
+            mainChart.data.datasets[0].label = `${config[currentKey].name} - ${label} (近12小時)`;
+            mainChart.data.datasets[0].data = filteredData.map(f => f[dataField]);
             mainChart.update();
-        } else {
-            console.log("此設備目前沒有歷史紀錄陣列");
         }
     } catch (e) {
-        console.error("圖表解析發生錯誤:", e);
-        // 在狀態列顯示提示，方便除錯
-        document.getElementById('status').innerText = `● 圖表載入失敗 (ID: ${deviceId})`;
+        console.error("圖表過濾發生錯誤:", e);
     }
 }
 </script>
